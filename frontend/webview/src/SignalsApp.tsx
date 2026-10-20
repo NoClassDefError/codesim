@@ -10,6 +10,7 @@ import { SmallSignalPanel } from './components/SmallSignalPanel';
 import { Toolbar } from './components/Toolbar';
 import { WaveformPanel } from './components/WaveformPanel';
 import { mockSystem } from './model/mockSystem';
+import { mergeSimulationSignals } from './model/signalModel';
 import type { SystemSnapshot } from './model/types';
 
 export function SignalsApp() {
@@ -19,22 +20,17 @@ export function SignalsApp() {
   useEffect(() => {
     const unsubscribeSnapshot = onSystemSnapshot(setSnapshot);
     const unsubscribeStarted = onSimulationStarted(() => {
-      setSnapshot((current) => ({ ...current, signals: [] }));
       setActiveTab('time');
     });
     const unsubscribeChunk = onSimulationChunk((chunk) => {
-      setSnapshot((current) => {
-        const signals = new Map(current.signals.map((signal) => [signal.id, signal]));
-        for (const incoming of chunk.signals) {
-          const existing = signals.get(incoming.id);
-          signals.set(incoming.id, existing ? {
-            ...existing,
-            time: [...existing.time, ...incoming.time],
-            values: [...existing.values, ...incoming.values],
-          } : incoming);
-        }
-        return { ...current, signals: [...signals.values()] };
-      });
+      setSnapshot((current) => ({
+        ...current,
+        signals: mergeSimulationSignals(
+          current.signals,
+          chunk.signals,
+          chunk.sequence === 0,
+        ),
+      }));
     });
     requestSystemSnapshot();
     return () => {

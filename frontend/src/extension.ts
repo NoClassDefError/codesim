@@ -68,6 +68,7 @@ class CodeSimHost {
 	private backendProcess: ChildProcessWithoutNullStreams | undefined;
 	private backendStart: Promise<void> | undefined;
 	private backendBuffer = '';
+	private backendMessageQueue: Promise<void> = Promise.resolve();
 	private nextRequestId = 1;
 	private activeAction: string | undefined;
 	private readonly pendingRequests = new Map<number, {
@@ -86,88 +87,74 @@ class CodeSimHost {
 	}
 
 	async selectPythonExecutable(): Promise<void> {
-		let executable: string | undefined;
 		const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-		const pythonExtension = vscode.extensions.getExtension('ms-python.python');
-		if (pythonExtension) {
-			try {
-				await pythonExtension.activate();
-				const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-				await vscode.commands.executeCommand('python.setInterpreter', { workspaceFolder });
-				executable = await vscode.commands.executeCommand<string>(
-					'python.interpreterPath', workspaceFolder?.uri,
-				);
-			} catch (error) {
-				this.output.appendLine(`[python selector] ${String(error)}`);
-			}
+		const configured = vscode.workspace
+			.getConfiguration(extensionNamespace, workspaceUri)
+			.get<string>('pythonExecutable', 'python');
+		const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		const executableNames = process.platform === 'win32'
+			? ['python.exe']
+			: ['python3', 'python'];
+		const candidates = new Set<string>();
+		if (path.isAbsolute(configured) && fs.existsSync(configured)) {
+			candidates.add(configured);
 		}
-		if (!executable) {
-			const configured = vscode.workspace
-				.getConfiguration(extensionNamespace, workspaceUri)
-				.get<string>('pythonExecutable', 'python');
-			const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-			const executableNames = process.platform === 'win32'
-				? ['python.exe']
-				: ['python3', 'python'];
-			const candidates = new Set<string>();
-			if (path.isAbsolute(configured) && fs.existsSync(configured)) {
-				candidates.add(configured);
-			}
-			if (workspace) {
-				for (const environment of ['.venv', 'venv', 'env', '.conda']) {
-					for (const name of executableNames) {
-						const candidate = path.join(
-							workspace, environment,
-							process.platform === 'win32' ? 'Scripts' : 'bin', name,
-						);
-						if (fs.existsSync(candidate)) {
-							candidates.add(candidate);
-						}
-					}
-				}
-			}
-			for (const directory of (process.env.PATH ?? '').split(path.delimiter)) {
+		if (workspace) {
+			for (const environment of ['.venv', 'venv', 'env', '.conda']) {
 				for (const name of executableNames) {
-					const candidate = path.join(directory, name);
+					const candidate = path.join(
+						workspace, environment,
+						process.platform === 'win32' ? 'Scripts' : 'bin', name,
+					);
 					if (fs.existsSync(candidate)) {
 						candidates.add(candidate);
 					}
 				}
 			}
-			type PythonChoice = vscode.QuickPickItem & {
-				value?: string;
-				action?: 'enter' | 'browse';
-			};
-			const choices: PythonChoice[] = [
-				...Array.from(candidates, (candidate) => ({
-					label: path.basename(path.dirname(candidate)),
-					description: candidate,
-					value: candidate,
-				})),
-				{ label: '$(edit) Enter interpreter path…', action: 'enter' },
-				{ label: '$(folder-opened) Browse…', action: 'browse' },
-			];
-			const choice = await vscode.window.showQuickPick(choices, {
-				placeHolder: 'Select a Python interpreter for CodeSim',
-				title: 'CodeSim: Select Python Executable',
-			});
-			if (choice?.action === 'enter') {
-				executable = await vscode.window.showInputBox({
-					prompt: 'Enter a Python executable path or command',
-					value: configured,
-				});
-			} else if (choice?.action === 'browse') {
-				const selected = await vscode.window.showOpenDialog({
-					canSelectFiles: true,
-					canSelectFolders: false,
-					canSelectMany: false,
-					openLabel: 'Use this Python',
-					title: 'Select the Python executable for CodeSim',
-				});
-				executable = selected?.[0]?.fsPath;
-			} else {
-				executable = choice?.value;
+		}
+		for (const directory of (process.env.PATH ?? '').split(path.delimiter)) {
+			for (const name of executableNames) {
+				const candidate = path.join(directory, name);
+				if (fs.existsSync(candidate)) {
+					candidates.add(candidate);
+				}
 			}
+		}
+		type PythonChoice = vscode.QuickPickItem & {
+			value?: string;
+			action?: 'enter' | 'browse';
+		};
+		const choices: PythonChoice[] = [
+			...Array.from(candidates, (candidate) => ({
+				label: path.basename(path.dirname(candidate)),
+				description: candidate,
+				detail: candidate === configured ? 'Current CodeSim interpreter' : undefined,
+				value: candidate,
+			})),
+			{ label: '$(edit) Enter interpreter path…', action: 'enter' },
+			{ label: '$(folder-opened) Browse…', action: 'browse' },
+		];
+		const choice = await vscode.window.showQuickPick(choices, {
+			placeHolder: 'Select the exact Python executable CodeSim should launch',
+			title: 'CodeSim: Select Python Executable',
+		});
+		let executable: string | undefined;
+		if (choice?.action === 'enter') {
+			executable = await vscode.window.showInputBox({
+				prompt: 'Enter a Python executable path or command',
+				value: configured,
+			});
+		} else if (choice?.action === 'browse') {
+			const selected = await vscode.window.showOpenDialog({
+				canSelectFiles: true,
+				canSelectFolders: false,
+				canSelectMany: false,
+				openLabel: 'Use this Python',
+				title: 'Select the Python executable for CodeSim',
+			});
+			executable = selected?.[0]?.fsPath;
+		} else {
+			executable = choice?.value;
 		}
 		if (!executable) {
 			return;
@@ -461,6 +448,7 @@ class CodeSimHost {
 				.getConfiguration(extensionNamespace, workspaceUri)
 				.get<string>('pythonExecutable', 'python')
 				.trim() || 'python';
+			this.output.appendLine(`[backend] Python executable: ${executable}`);
 			const process = spawn(executable, ['-u', '-m', 'codesimpy.api.cli'], {
 				cwd: this.backendPath(), windowsHide: true, stdio: 'pipe',
 			});
@@ -507,14 +495,19 @@ class CodeSimHost {
 				continue;
 			}
 			try {
-				this.handleBackendMessage(JSON.parse(line) as BackendResponse);
+				const message = JSON.parse(line) as BackendResponse;
+				this.backendMessageQueue = this.backendMessageQueue
+					.then(() => this.handleBackendMessage(message))
+					.catch((error) => {
+						this.output.appendLine(`[backend message] ${String(error)}`);
+					});
 			} catch {
 				this.output.appendLine(`[backend stdout] ${line}`);
 			}
 		}
 	}
 
-	private handleBackendMessage(message: BackendResponse): void {
+	private async handleBackendMessage(message: BackendResponse): Promise<void> {
 		if (message.type) {
 			if (message.type === 'simulation.started' && this.isSystemSnapshot(this.currentSnapshot)) {
 				(this.currentSnapshot as Record<string, unknown>).signals = [];
@@ -534,7 +527,7 @@ class CodeSimHost {
 				}
 				snapshot.signals = [...current.values()];
 			}
-			void this.postToWebviews(message);
+			await this.postToWebviews(message);
 			return;
 		}
 		if (typeof message.id !== 'number') {

@@ -6,6 +6,7 @@ import type {
   SignalOperation,
   SystemSnapshot,
 } from '../model/types';
+import { defaultPlots, type PlotDefinition } from '../model/signalModel';
 
 const width = 1000;
 const height = 224;
@@ -346,45 +347,6 @@ function asSeries(
 
 interface Props {
   snapshot: SystemSnapshot;
-}
-
-interface PlotDefinition {
-  id: string;
-  title: string;
-  signalIds: string[];
-}
-
-function defaultPlots(signals: SignalDescriptor[]): PlotDefinition[] {
-  const outputs = signals.filter((signal) => signal.category !== 'state');
-  const hasField = (signal: SignalDescriptor, field: string) =>
-    `-${signal.id.toLowerCase()}-`.includes(`-${field}-`);
-  return [
-    {
-      id: 'plot-voltage',
-      title: 'Bus voltage magnitude',
-      signalIds: outputs.filter((signal) => hasField(signal, 'busvoltagemagnitude'))
-        .map((signal) => signal.id),
-    },
-    {
-      id: 'plot-current',
-      title: 'Line current',
-      signalIds: outputs.filter((signal) => hasField(signal, 'line-current'))
-        .map((signal) => signal.id),
-    },
-    {
-      id: 'plot-power',
-      title: 'Device active / reactive power',
-      signalIds: outputs.filter((signal) =>
-        hasField(signal, 'activepower') || hasField(signal, 'reactivepower'))
-        .map((signal) => signal.id),
-    },
-    {
-      id: 'plot-angle',
-      title: 'Bus voltage angle',
-      signalIds: outputs.filter((signal) => hasField(signal, 'busvoltageangledeg'))
-        .map((signal) => signal.id),
-    },
-  ];
 }
 
 export function WaveformPanel({ snapshot }: Props) {
