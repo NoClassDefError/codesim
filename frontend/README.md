@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="media/Icon.png" alt="CodeSim icon" width="160">
+</p>
+
 # CodeSim VS Code extension
 
 This directory contains the VS Code extension host and the React webviews used for topology, parameters, signals, small-signal results, and interaction analysis.
@@ -16,7 +20,7 @@ frontend/
 │  ├─ components/               Toolbars, plots, tables, and panels
 │  ├─ model/                    Snapshot schema and view-model conversion
 │  └─ styles/                   Theme-aware webview styles
-├─ media/                       Activity-bar icon
+├─ media/                       Extension logo and activity-bar icon
 ├─ dist/                        Generated webview bundle
 ├─ out/                         Generated extension host JavaScript
 └─ package.json                 Contributions, settings, and scripts

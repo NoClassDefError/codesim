@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Icon.png" alt="CodeSim icon" width="160">
+</p>
+
 # CodeSim - Building power system symbolically!
 
 CodeSim is a Python-first toolkit for modelling and analysing converter-dominated power systems. 
@@ -38,7 +42,7 @@ python -m pip install numpy scipy sympy
 
 1. Open the VS Code **Extensions** view.
 2. Open the `...` menu and choose **Install from VSIX...**.
-3. Select `frontend/codesim-frontend-0.1.1.vsix`.
+3. Select `frontend/codesim-frontend-0.1.2.vsix`.
 4. Reload the VS Code window.
 
 ### 3. Configure CodeSim
@@ -107,7 +111,7 @@ codesim/
 ├─ frontend/
 │  ├─ src/extension.ts           VS Code extension host
 │  ├─ webview/src/               React topology and signal views
-│  ├─ media/                     Extension assets
+│  ├─ media/                     Extension logo and activity-bar icon
 │  ├─ package.json               Commands, settings, and build scripts
 │  └─ README.md                  Frontend development documentation
 ├─ codegen/                      Generated snapshots; ignored by Git

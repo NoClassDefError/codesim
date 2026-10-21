@@ -3,8 +3,9 @@
   "publisher": "hanchen-ge",
   "displayName": "Codesim System Viewer",
   "description": "Visualize CodeSim Python systems in a VS Code webview.",
+  "icon": "media/Icon.png",
   "license": "Apache-2.0",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "engines": {
     "vscode": "^1.140.0"
   },
