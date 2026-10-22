@@ -6,7 +6,8 @@ from typing import Any
 
 import numpy as np
 
-from ..core import OutputJsonFactory, SmallSignalAnalyzer
+from ..core import SmallSignalAnalyzer
+from .output_json_factory import OutputJsonFactory
 from .system_factory import SystemFactory
 
 
@@ -133,7 +134,7 @@ class CLI:
             systemName=self.systemName, sampleCount=time_s.size,
         )
         try:
-            if self.systemName == "VSGSMIBSystem":
+            if self.systemName in ("VSGSMIBSystem", "VSGSMIBAVCSystem"):
                 simulation = self.system.simulateFault(
                     time_s, operatingPoint["state"], saveSnapshot=False,
                 )

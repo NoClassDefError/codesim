@@ -13,6 +13,7 @@ from scipy.optimize import root
 
 from .rl_grid import RLGrid
 from .small_signal_analyzer import SmallSignalAnalyzer
+from .transient_voltage_analyzer import TransientVoltageAnalyzer
 
 
 class System(ABC):
@@ -49,7 +50,8 @@ class System(ABC):
         self.referenceMap = dict(referenceMap)
         self.getReference()
         self.smallSignal = SmallSignalAnalyzer(self)
-        from .output_json_factory import OutputJsonFactory
+        self.transientVoltage = TransientVoltageAnalyzer(self)
+        from ..api.output_json_factory import OutputJsonFactory
         self.outputJsonFactory = OutputJsonFactory(self)
 
     def setReference(self, name: str, value: float | Callable[[float], float]) -> None:

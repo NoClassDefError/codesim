@@ -6,10 +6,10 @@ import * as vscode from 'vscode';
 const extensionNamespace = 'codesim-frontend';
 const viewerCommandId = `${extensionNamespace}.openViewer`;
 const signalsCommandId = `${extensionNamespace}.openSignals`;
-const selectPythonCommandId = `${extensionNamespace}.selectPythonExecutable`;
 const selectBackendCommandId = `${extensionNamespace}.selectBackendDirectory`;
 const viewerViewId = `${extensionNamespace}.viewer`;
 const defaultSystem = 'VSGSMIBSystem';
+const pythonExtensionId = 'ms-python.python';
 
 type AnalysisKind = 'simulation' | 'smallSignal' | 'interaction';
 
@@ -39,6 +39,27 @@ interface BackendResponse {
 	[key: string]: unknown;
 }
 
+interface PythonEnvironmentPath {
+	readonly path: string;
+}
+
+interface ResolvedPythonEnvironment {
+	readonly executable: {
+		readonly uri: vscode.Uri | undefined;
+	};
+}
+
+interface PythonExtensionApi {
+	readonly environments: {
+		getActiveEnvironmentPath(
+			resource?: vscode.Uri | vscode.WorkspaceFolder,
+		): PythonEnvironmentPath | undefined;
+		resolveEnvironment(
+			environment: PythonEnvironmentPath | string,
+		): Promise<ResolvedPythonEnvironment | undefined>;
+	};
+}
+
 export function activate(context: vscode.ExtensionContext): void {
 	const host = new CodeSimHost(context);
 	const viewerProvider = new CodeSimViewerProvider(context, host);
@@ -53,7 +74,6 @@ export function activate(context: vscode.ExtensionContext): void {
 		vscode.commands.registerCommand(signalsCommandId, () => {
 			SignalsPanel.createOrShow(context, host);
 		}),
-		vscode.commands.registerCommand(selectPythonCommandId, () => host.selectPythonExecutable()),
 		vscode.commands.registerCommand(selectBackendCommandId, () => host.selectBackendDirectory()),
 	);
 }
@@ -84,87 +104,6 @@ class CodeSimHost {
 	registerWebview(webview: vscode.Webview): () => void {
 		this.webviews.add(webview);
 		return () => this.webviews.delete(webview);
-	}
-
-	async selectPythonExecutable(): Promise<void> {
-		const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-		const configured = vscode.workspace
-			.getConfiguration(extensionNamespace, workspaceUri)
-			.get<string>('pythonExecutable', 'python');
-		const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-		const executableNames = process.platform === 'win32'
-			? ['python.exe']
-			: ['python3', 'python'];
-		const candidates = new Set<string>();
-		if (path.isAbsolute(configured) && fs.existsSync(configured)) {
-			candidates.add(configured);
-		}
-		if (workspace) {
-			for (const environment of ['.venv', 'venv', 'env', '.conda']) {
-				for (const name of executableNames) {
-					const candidate = path.join(
-						workspace, environment,
-						process.platform === 'win32' ? 'Scripts' : 'bin', name,
-					);
-					if (fs.existsSync(candidate)) {
-						candidates.add(candidate);
-					}
-				}
-			}
-		}
-		for (const directory of (process.env.PATH ?? '').split(path.delimiter)) {
-			for (const name of executableNames) {
-				const candidate = path.join(directory, name);
-				if (fs.existsSync(candidate)) {
-					candidates.add(candidate);
-				}
-			}
-		}
-		type PythonChoice = vscode.QuickPickItem & {
-			value?: string;
-			action?: 'enter' | 'browse';
-		};
-		const choices: PythonChoice[] = [
-			...Array.from(candidates, (candidate) => ({
-				label: path.basename(path.dirname(candidate)),
-				description: candidate,
-				detail: candidate === configured ? 'Current CodeSim interpreter' : undefined,
-				value: candidate,
-			})),
-			{ label: '$(edit) Enter interpreter path…', action: 'enter' },
-			{ label: '$(folder-opened) Browse…', action: 'browse' },
-		];
-		const choice = await vscode.window.showQuickPick(choices, {
-			placeHolder: 'Select the exact Python executable CodeSim should launch',
-			title: 'CodeSim: Select Python Executable',
-		});
-		let executable: string | undefined;
-		if (choice?.action === 'enter') {
-			executable = await vscode.window.showInputBox({
-				prompt: 'Enter a Python executable path or command',
-				value: configured,
-			});
-		} else if (choice?.action === 'browse') {
-			const selected = await vscode.window.showOpenDialog({
-				canSelectFiles: true,
-				canSelectFolders: false,
-				canSelectMany: false,
-				openLabel: 'Use this Python',
-				title: 'Select the Python executable for CodeSim',
-			});
-			executable = selected?.[0]?.fsPath;
-		} else {
-			executable = choice?.value;
-		}
-		if (!executable) {
-			return;
-		}
-		await vscode.workspace.getConfiguration(extensionNamespace, workspaceUri).update(
-			'pythonExecutable', executable, vscode.ConfigurationTarget.Workspace,
-		);
-		void vscode.window.showInformationMessage(
-			`CodeSim Python executable: ${executable}. Restart the backend to apply it.`,
-		);
 	}
 
 	async selectBackendDirectory(): Promise<void> {
@@ -442,12 +381,8 @@ class CodeSimHost {
 		if (this.backendStart) {
 			return await this.backendStart;
 		}
+		const executable = await this.pythonExecutable();
 		this.backendStart = new Promise<void>((resolve, reject) => {
-			const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
-			const executable = vscode.workspace
-				.getConfiguration(extensionNamespace, workspaceUri)
-				.get<string>('pythonExecutable', 'python')
-				.trim() || 'python';
 			this.output.appendLine(`[backend] Python executable: ${executable}`);
 			const process = spawn(executable, ['-u', '-m', 'codesimpy.api.cli'], {
 				cwd: this.backendPath(), windowsHide: true, stdio: 'pipe',
@@ -484,6 +419,32 @@ class CodeSimHost {
 			});
 		});
 		return await this.backendStart;
+	}
+
+	private async pythonExecutable(): Promise<string> {
+		const extension = vscode.extensions.getExtension<PythonExtensionApi>(pythonExtensionId);
+		if (!extension) {
+			throw new Error(
+				'Install and enable the Microsoft Python extension, then run "Python: Select Interpreter".',
+			);
+		}
+		const pythonApi = extension.isActive ? extension.exports : await extension.activate();
+		const workspace = vscode.workspace.workspaceFolders?.[0];
+		const activeEnvironment = pythonApi?.environments
+			.getActiveEnvironmentPath(workspace);
+		if (!activeEnvironment) {
+			throw new Error('Run "Python: Select Interpreter" before starting the CodeSim backend.');
+		}
+		const resolvedEnvironment = await pythonApi.environments
+			.resolveEnvironment(activeEnvironment);
+		const executable = resolvedEnvironment?.executable.uri?.fsPath;
+		if (!executable || !fs.existsSync(executable)) {
+			throw new Error(
+				'The interpreter selected by the Microsoft Python extension is unavailable. ' +
+				'Run "Python: Select Interpreter" and choose a valid environment.',
+			);
+		}
+		return executable;
 	}
 
 	private readBackendOutput(chunk: string): void {

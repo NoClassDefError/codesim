@@ -6,9 +6,21 @@ from pathlib import Path
 import numpy as np
 
 from codesimpy.api import SystemFactory
+from codesimpy.components import VSGCCAVC
 
 
 class VSGSMIBTests(unittest.TestCase):
+    def test_avc_system_initializes_and_simulates(self):
+        system, _, options = SystemFactory.create("VSGSMIBAVCSystem")
+        self.assertIsInstance(system.devices["vsg"], VSGCCAVC)
+        point = system.initialize(ResidualTolerance=options["ResidualTolerance"])
+        result = system.simulateFault(
+            np.linspace(0, 0.002, 5), point["state"], saveSnapshot=False,
+        )
+        self.assertEqual(system.name, "VSGSMIBAVCSystem")
+        self.assertEqual(result["state"].shape, (5, 14))
+        self.assertEqual(result["signals"]["irefDQ"].shape, (5, 2))
+
     def test_both_device_models_initialize(self):
         for model in ("VSGCC", "VSGCL"):
             with self.subTest(model=model):

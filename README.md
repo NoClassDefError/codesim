@@ -25,7 +25,7 @@ Tired of dragging messy control blocks and circuit elements in Simulink / PSCAD?
 
 - Python 3.10 or newer.
 - Python packages: `numpy`, `scipy`, and `sympy`.
-- Visual Studio Code for the graphical interface.
+- Visual Studio Code with the Microsoft Python extension for the graphical interface.
 - Node.js and npm only when developing or rebuilding the extension.
 
 ## Quick start
@@ -42,7 +42,7 @@ python -m pip install numpy scipy sympy
 
 1. Open the VS Code **Extensions** view.
 2. Open the `...` menu and choose **Install from VSIX...**.
-3. Select `frontend/codesim-frontend-0.1.2.vsix`.
+3. Select `frontend/codesim-frontend-0.1.3.vsix`.
 4. Reload the VS Code window.
 
 ### 3. Configure CodeSim
@@ -53,14 +53,15 @@ Then you should see the codesim dialog in the VS Code sidebar. If not, right cli
 
 Open the Command Palette (The textarea on the top of VSCode) and run:
 
-- **CodeSim: Select Python Executable** to select a detected Python/Conda environment or browse to an executable.
+- **Python: Select Interpreter** to choose the Python environment CodeSim will use.
 - **CodeSim: Select Backend Directory** to select either the project root containing `codesimpy` or the `codesimpy` directory itself.
 
-The equivalent settings are:
+CodeSim does not keep a separate Python executable setting. Each time the backend starts, it uses the active interpreter from the Microsoft Python extension for the current workspace. To switch environments, stop the CodeSim backend, run **Python: Select Interpreter**, choose the new environment, and start the backend again.
+
+The only CodeSim path setting is:
 
 ```json
 {
-  "codesim-frontend.pythonExecutable": "C:\\path\\to\\python.exe",
   "codesim-frontend.backendPath": "C:\\path\\to\\codesim"
 }
 ```
@@ -82,6 +83,7 @@ The topology toolbar also provides refresh, automatic layout, and layout-save ac
 | --- | --- |
 | `HybridSystem` | Current-limited GFM with an optional parallel GFL connected to an infinite bus |
 | `VSGSMIBSystem` | VSG single-machine infinite-bus fault study using `VSGCC` or `VSGCL` |
+| `VSGSMIBAVCSystem` | VSG single-machine infinite-bus fault study using cascaded voltage/current control (`VSGCCAVC`) |
 | `GFLLVRTSystem` | Grid-following converter low-voltage ride-through study |
 | `ParallelVSGSystem` | Two VSGs connected in parallel through separate branches |
 | `SGSMIBSystem` | Synchronous-generator single-machine infinite-bus study |
@@ -97,6 +99,7 @@ codesim/
 ├─ codesimpy/
 │  ├─ api/
 │  │  ├─ cli.py                  Resident stdio service and analysis endpoints
+│  │  ├─ output_json_factory.py  Stdout and snapshot serialization
 │  │  └─ system_factory.py       System registry, defaults, and construction
 │  ├─ components/                Converter, machine, source, and load models
 │  ├─ core/
@@ -104,8 +107,7 @@ codesim/
 │  │  ├─ system.py               Initialization, integration, and signals
 │  │  ├─ rl_grid.py              Symbolic/numerical RL network model
 │  │  ├─ small_signal_analyzer.py
-│  │  └─ output_json_factory.py  Stdout and snapshot serialization
-│  ├─ systems/                   Seven runnable system definitions
+│  ├─ systems/                   Eight runnable system definitions
 │  ├─ tests/                     Python unit and service tests
 │  └─ README.md                  Python package documentation
 ├─ frontend/

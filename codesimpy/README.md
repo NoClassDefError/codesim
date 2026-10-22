@@ -24,6 +24,8 @@ codesimpy/
 ├─ api/
 │  ├─ cli.py                    Resident stdin/stdout JSON service
 │  └─ system_factory.py         Registry, defaults, and system construction
+├─ api/
+│  └─ output_json_factory.py   Stdout events and persistent snapshots
 ├─ components/
 │  ├─ vsgcc.py, vsgcl.py       Grid-forming converter models
 │  ├─ gfl_vsc.py               Grid-following converter model
@@ -35,7 +37,6 @@ codesimpy/
 │  ├─ system.py                Initialization, integration, and signal assembly
 │  ├─ rl_grid.py               Symbolic RL network and power flow
 │  ├─ small_signal_analyzer.py Modal and subsystem-interaction analysis
-│  └─ output_json_factory.py   Stdout events and persistent snapshots
 ├─ systems/                    Seven registered network studies
 └─ tests/                      Unit, migration, simulation, and stdio tests
 ```

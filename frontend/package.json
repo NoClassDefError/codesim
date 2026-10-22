@@ -5,7 +5,7 @@
   "description": "Visualize CodeSim Python systems in a VS Code webview.",
   "icon": "media/Icon.png",
   "license": "Apache-2.0",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "engines": {
     "vscode": "^1.140.0"
   },
@@ -16,9 +16,11 @@
   "activationEvents": [
     "onCommand:codesim-frontend.openViewer",
     "onCommand:codesim-frontend.openSignals",
-    "onCommand:codesim-frontend.selectPythonExecutable",
     "onCommand:codesim-frontend.selectBackendDirectory",
     "onView:codesim-frontend.viewer"
+  ],
+  "extensionDependencies": [
+    "ms-python.python"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -50,10 +52,6 @@
         "title": "codesim: Open Signals"
       },
       {
-        "command": "codesim-frontend.selectPythonExecutable",
-        "title": "CodeSim: Select Python Executable"
-      },
-      {
         "command": "codesim-frontend.selectBackendDirectory",
         "title": "CodeSim: Select Backend Directory"
       }
@@ -65,11 +63,6 @@
           "type": "string",
           "default": "",
           "description": "Path containing the codesimpy package. Empty uses the current workspace or its codesim directory."
-        },
-        "codesim-frontend.pythonExecutable": {
-          "type": "string",
-          "default": "python",
-          "description": "Python executable used to run the CodeSim backend."
         }
       }
     }

@@ -1,10 +1,10 @@
-"""CIGRE MV14 feeder with a grid-forming converter at bus 9."""
+"""CIGRE MV14 feeder with converters at buses 7 and 9."""
 
 from time import perf_counter
 
 import numpy as np
 
-from ..components import Capacitor, Infbus, VSGCC, ZeroCurrent
+from ..components import Capacitor, GFLVSC, Infbus, VSGCC, ZeroCurrent
 from ..core import System
 
 
@@ -13,12 +13,13 @@ class CIGREMV14System(System):
         data = self.buildCigreData()
         incidence, branchR, branchL, nodeNames, busCapacitance = self.assembleNetwork(data)
         voltageDevices, currentDevices, referenceMap = [None] * len(nodeNames), [None] * len(nodeNames), {}
-        sourceNode, groundNode, vsgNode = nodeNames.index("source"), nodeNames.index("ground"), nodeNames.index("9")
+        sourceNode, groundNode = nodeNames.index("source"), nodeNames.index("ground")
+        gflNode, vsgNode = nodeNames.index("7"), nodeNames.index("9")
         source = Infbus(1, p["Sbase_VA"], "cigre_source"); source.p["kA"]["num"] = 100
         ground = Infbus(1, p["Sbase_VA"], "cigre_ground"); ground.p["kA"]["num"] = 100
         voltageDevices[sourceNode], voltageDevices[groundNode] = source, ground
         referenceMap[str(source.uref[0])], referenceMap[str(ground.uref[0])] = 1.0, 0.0
-        vsg = None
+        gfl, vsg = None, None
         for nodeIndex, nodeName in enumerate(nodeNames):
             deviceIndex = f"cigre_{nodeName}"
             if nodeIndex not in (sourceNode, groundNode, vsgNode):
@@ -34,8 +35,23 @@ class CIGREMV14System(System):
                 voltageDevices[nodeIndex] = vsg
                 for symbol, value in zip(vsg.uref, (p["VSGPref"], p["VSGVref"], p["VSGwref"])):
                     referenceMap[str(symbol)] = value
-            currentDevices[nodeIndex] = ZeroCurrent(1, p["Sbase_VA"], f"{deviceIndex}_zero")
-        devices = {"Vdev": voltageDevices, "Idev": currentDevices, "source": source, "vsg": vsg}
+            if nodeIndex == gflNode:
+                gfl = GFLVSC(1, p.get("GFLSbase_VA", 1.5e6), "cigre_gfl_bus7")
+                for sourceName, targetName in (
+                    ("GFLLf", "L"), ("GFLKpCc", "Kpcc"), ("GFLKiCc", "Kicc"),
+                    ("GFLKpPll", "KpPll"), ("GFLKiPll", "KiPll"),
+                    ("GFLKpP", "kpP"), ("GFLKiP", "kiP"),
+                    ("GFLKpQ", "kpQ"), ("GFLKiQ", "kiQ"),
+                ):
+                    if sourceName in p:
+                        gfl.p[targetName]["num"] = p[sourceName]
+                referenceMap[str(gfl.uref[0])] = p.get("GFLPref", 1)
+                referenceMap[str(gfl.uref[1])] = p.get("GFLQref", 0)
+                currentDevices[nodeIndex] = gfl
+            else:
+                currentDevices[nodeIndex] = ZeroCurrent(1, p["Sbase_VA"], f"{deviceIndex}_zero")
+        devices = {"Vdev": voltageDevices, "Idev": currentDevices, "source": source,
+                   "gfl": gfl, "vsg": vsg}
         network = {"A": incidence, "R": branchR, "L": branchL, "busNames": nodeNames}
         super().__init__("CIGREMV14System", network, devices,
                          {"Vbase": 1, "Sbase": p["Sbase_VA"], "frequency_Hz": p["frequency_Hz"]}, referenceMap)

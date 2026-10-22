@@ -30,16 +30,15 @@ frontend/
 
 | Command | Purpose |
 | --- | --- |
-| `CodeSim: Select Python Executable` | Select a configured, workspace, or PATH interpreter, or browse to one manually |
 | `CodeSim: Select Backend Directory` | Select the project root or its `codesimpy` package directory |
 | `codesim: Open System Viewer` | Focus the topology view |
 | `codesim: Open Signals` | Open the signals and analysis panel |
 
-The extension contributes `codesim-frontend.pythonExecutable` and `codesim-frontend.backendPath`. Configuration is read across applicable workspace and folder scopes. When a configured backend path is unavailable, the extension also checks the open workspace folders.
+The extension uses the active interpreter selected by the Microsoft Python extension for the current workspace. Run `Python: Select Interpreter` to change it, then restart the CodeSim backend. There is no separate `codesim-frontend.pythonExecutable` setting. CodeSim contributes only the `codesim-frontend.backendPath` setting; when that path is unavailable, it also checks the open workspace folders.
 
 ## Runtime flow
 
-1. The topology power button starts `python -u -m codesimpy.api.cli`.
+1. The topology power button starts `<selected Python interpreter> -u -m codesimpy.api.cli`.
 2. The extension sends line-delimited JSON requests through stdin.
 3. It reads responses and live simulation events from stdout.
 4. Webview messages update topology, parameters, plots, and analysis panels.

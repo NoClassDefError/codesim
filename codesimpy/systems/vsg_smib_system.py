@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
 
-from ..components import Infbus, VSGCC, VSGCL, ZeroCurrent
+from ..components import Infbus, VSGCC, VSGCCAVC, VSGCL, ZeroCurrent
 from ..core import System
 
 
@@ -15,7 +15,7 @@ class VSGSMIBSystem(System):
         self, p: dict[str, Any], *, DeviceModel: str = "VSGCC",
         ClearingState: str = "delta",
     ) -> None:
-        deviceClass = {"VSGCC": VSGCC, "VSGCL": VSGCL}[DeviceModel]
+        deviceClass = {"VSGCC": VSGCC, "VSGCCAVC": VSGCCAVC, "VSGCL": VSGCL}[DeviceModel]
         vsg = deviceClass(p["Vbase"], p["Sbase"], "vsg")
         if "Kp" in p:
             vsg.p["Kp"]["num"] = p["Kp"]
@@ -134,6 +134,14 @@ class VSGSMIBSystem(System):
         if isinstance(vsg, VSGCC):
             currentIndices = [self.stateNames.index(f"{name}{vsg.index}") for name in ("irefd", "irefq")]
             current = state[:, currentIndices]
+        elif isinstance(vsg, VSGCCAVC):
+            capacitorIndices = [self.stateNames.index(f"{name}{vsg.index}") for name in ("vCd", "vCq")]
+            controllerIndices = [self.stateNames.index(f"{name}{vsg.index}") for name in ("xavcd", "xavcq")]
+            vc, xavc = state[:, capacitorIndices], state[:, controllerIndices]
+            vcol = self.referenceNames.index(str(vsg.uref[1]))
+            voltageReference = net["referenceTrace"][:, vcol, None]
+            target = voltageReference * np.column_stack((np.cos(delta), np.sin(delta)))
+            current = vsg.p["Kp_avc"]["num"] * (target - vc) + vsg.p["Ki_avc"]["num"] * xavc
         else:
             capacitorIndices = [self.stateNames.index(f"{name}{vsg.index}") for name in ("vCd", "vCq")]
             vc = state[:, capacitorIndices]

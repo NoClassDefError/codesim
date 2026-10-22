@@ -6,12 +6,12 @@ import numpy as np
 
 from ..systems import (CIGREMV14System, GFLLVRTSystem, HybridSystem,
                        IEEE13System, ParallelVSGSystem, SGSMIBSystem,
-                       VSGSMIBSystem)
+                       VSGSMIBAVCSystem, VSGSMIBSystem)
 
 
 class SystemFactory:
-    systemNames = ["HybridSystem", "VSGSMIBSystem", "GFLLVRTSystem", "ParallelVSGSystem",
-                   "SGSMIBSystem", "IEEE13System", "CIGREMV14System"]
+    systemNames = ["HybridSystem", "VSGSMIBSystem", "VSGSMIBAVCSystem", "GFLLVRTSystem",
+                   "ParallelVSGSystem", "SGSMIBSystem", "IEEE13System", "CIGREMV14System"]
 
     @classmethod
     def create(cls, systemName: str, parameters: dict[str, Any] | None = None,
@@ -24,6 +24,7 @@ class SystemFactory:
         classes = {
             "HybridSystem": lambda: HybridSystem(p, EnableGFL=options["EnableGFL"]),
             "VSGSMIBSystem": lambda: VSGSMIBSystem(p, DeviceModel=options["DeviceModel"], ClearingState=options["ClearingState"]),
+            "VSGSMIBAVCSystem": lambda: VSGSMIBAVCSystem(p, ClearingState=options["ClearingState"]),
             "GFLLVRTSystem": lambda: GFLLVRTSystem(p),
             "ParallelVSGSystem": lambda: ParallelVSGSystem(p),
             "SGSMIBSystem": lambda: SGSMIBSystem(p),
@@ -63,6 +64,12 @@ class SystemFactory:
                 "clearTime_s": 1, "faultStart_s": 0.2, "minimumFaultDuration_s": 0.5,
                 "faultVoltage_pu": 0.5, "voltageRamp_s": 0.001, "validationTime_s": 2,
             },
+            "VSGSMIBAVCSystem": {
+                "Vbase": 1, "Sbase": 8100, "frequency_Hz": 50, "SCR": 2, "rho": 0.1,
+                "Pref": 1, "Vref": 1.1, "wref": 1, "clearMode": "time", "clearAngle_rad": -np.pi / 3,
+                "clearTime_s": 1, "faultStart_s": 0.2, "minimumFaultDuration_s": 0.5,
+                "faultVoltage_pu": 0.5, "voltageRamp_s": 0.001, "validationTime_s": 2,
+            },
             "GFLLVRTSystem": {
                 "SCR": 10, "rho": 0.25, "Pref": 1, "Qref": 0.1, "frequency_Hz": 50,
                 "validationTime_s": 1, "faultStart_s": 0.3, "faultComplete_s": 0.301,
@@ -87,7 +94,11 @@ class SystemFactory:
             },
             "CIGREMV14System": {
                 "Sbase_VA": 25e6, "VbaseLL_V": 20e3, "frequency_Hz": 50, "VSGSbase_VA": 5e6,
-                "VSGPref": 1, "VSGVref": 1.02, "VSGwref": 1, "faultStartAngle_s": 0.20,
+                "GFLSbase_VA": 1.5e6, "GFLPref": 1, "GFLQref": 0,
+                "GFLLf": 0.07, "GFLKpCc": 0.3, "GFLKiCc": 1,
+                "GFLKpPll": 0.2, "GFLKiPll": 0.02,
+                "GFLKpP": 0.02, "GFLKiP": 0.02, "GFLKpQ": 0.02, "GFLKiQ": 0.02,
+                "VSGPref": 1, "VSGVref": 1.1, "VSGwref": 1, "faultStartAngle_s": 0.20,
                 "angleClearEligible_s": 0.25, "angleClearLower_rad": -np.pi / 3,
                 "angleClearUpper_rad": 0, "angleFaultVoltage_pu": 0, "fixedFaultStart_s": 0.10,
                 "fixedFaultComplete_s": 0.101, "fixedClearStart_s": 0.25, "fixedClearComplete_s": 0.2501,
@@ -105,7 +116,7 @@ class SystemFactory:
         if options["EndTime_s"] is not None:
             p["validationTime_s"] = options["EndTime_s"]
         p["wBase"] = 2 * np.pi * p["frequency_Hz"]
-        if name in ("HybridSystem", "VSGSMIBSystem", "GFLLVRTSystem", "SGSMIBSystem"):
+        if name in ("HybridSystem", "VSGSMIBSystem", "VSGSMIBAVCSystem", "GFLLVRTSystem", "SGSMIBSystem"):
             p["Lg"] = 1 / (p["SCR"] * np.sqrt(1 + p["rho"]**2)); p["Rg"] = p["rho"] * p["Lg"]
         if name == "HybridSystem":
             p["branchL"], p["branchR"] = p["Lg"], p["Rg"]
@@ -114,7 +125,7 @@ class SystemFactory:
             if not p.get("gridVoltage"):
                 p["gridVoltage"] = lambda t, times=eventTime, values=[1, 1, p["faultVoltage"], p["faultVoltage"], 1, 1]: cls.linearVoltage(t, times, values)
             outputStep, maxStep, tolerance = 2e-3, 5e-3 / p["wBase"], 1e-4
-        elif name == "VSGSMIBSystem":
+        elif name in ("VSGSMIBSystem", "VSGSMIBAVCSystem"):
             if options["FaultMode"] is None: options["FaultMode"] = p["clearMode"]
             else: p["clearMode"] = options["FaultMode"]
             eventTime = [p["faultStart_s"], p["faultStart_s"] + p["voltageRamp_s"],

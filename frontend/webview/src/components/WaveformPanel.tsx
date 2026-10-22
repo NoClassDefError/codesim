@@ -73,8 +73,33 @@ function timeExtent(signals: SignalDescriptor[]): [number, number] {
     : [0, 1];
 }
 
-function tickLabel(value: number): string {
+function decimalPlacesForInterval(interval: number): number {
+  const absolute = Math.abs(interval);
+  if (!Number.isFinite(absolute) || absolute === 0) {
+    return 2;
+  }
+  for (let places = 0; places <= 12; places += 1) {
+    const scale = 10 ** places;
+    const rounded = Math.round(absolute * scale) / scale;
+    if (Math.abs(absolute - rounded) <= Math.max(absolute * 1e-9, 1e-15)) {
+      return places;
+    }
+  }
+  return 12;
+}
+
+function tickLabel(value: number, interval?: number): string {
   const magnitude = Math.abs(value);
+  if (!Number.isFinite(value)) {
+    return String(value);
+  }
+  if (interval !== undefined) {
+    const places = decimalPlacesForInterval(interval);
+    if (places > 10 || magnitude >= 1e9) {
+      return value.toExponential(Math.min(6, Math.max(1, places - 1)));
+    }
+    return value.toFixed(places);
+  }
   if ((magnitude > 0 && magnitude < 0.001) || magnitude >= 1000) {
     return value.toExponential(1);
   }
@@ -150,6 +175,7 @@ function PlotPanel({
   const xTicks = Array.from({ length: 5 }, (_, index) =>
     xRange[0] + ((xRange[1] - xRange[0]) * index) / 4,
   );
+  const xTickInterval = (xRange[1] - xRange[0]) / 4;
   const yTicks = Array.from({ length: 5 }, (_, index) =>
     leftRange[0] + ((leftRange[1] - leftRange[0]) * index) / 4,
   );
@@ -244,7 +270,7 @@ function PlotPanel({
                   y2={height - margin.bottom}
                 />
                 <text className="chart-tick" x={x} y={height - 9} textAnchor="middle">
-                  {tickLabel(tick)}
+                  {tickLabel(tick, xTickInterval)}
                 </text>
               </g>
             );
