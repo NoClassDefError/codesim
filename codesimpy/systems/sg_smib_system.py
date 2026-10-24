@@ -24,6 +24,7 @@ class SGSMIBSystem(System):
                    "busNames": ["SG PCC", "Infinite bus"]}
         super().__init__("SGSMIBSystem", network, devices,
                          {"Vbase": p["Vbase"], "Sbase": p["Sbase"], "frequency_Hz": p["frequency_Hz"]}, refs)
+        self.solverSettings["max_step"] = 5e-3 / (2 * np.pi * p["frequency_Hz"])
         self.parameters, self.parameterNames = p, list(p)
 
     def initialize(self, time_s=0.0, *, Reference=None, ResidualTolerance=1e-4):

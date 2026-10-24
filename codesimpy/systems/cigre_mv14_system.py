@@ -1,7 +1,5 @@
 """CIGRE MV14 feeder with converters at buses 7 and 9."""
 
-from time import perf_counter
-
 import numpy as np
 
 from ..components import Capacitor, GFLVSC, Infbus, VSGCC, ZeroCurrent
@@ -18,7 +16,11 @@ class CIGREMV14System(System):
         source = Infbus(1, p["Sbase_VA"], "cigre_source"); source.p["kA"]["num"] = 100
         ground = Infbus(1, p["Sbase_VA"], "cigre_ground"); ground.p["kA"]["num"] = 100
         voltageDevices[sourceNode], voltageDevices[groundNode] = source, ground
-        referenceMap[str(source.uref[0])], referenceMap[str(ground.uref[0])] = 1.0, 0.0
+        p["clearTime_s"] = (
+            np.inf if p["clearMode"] == "angle" else p["fixedClearStart_s"]
+        )
+        referenceMap[str(source.uref[0])] = lambda t: self.sourceVoltage(t, p)
+        referenceMap[str(ground.uref[0])] = 0.0
         gfl, vsg = None, None
         for nodeIndex, nodeName in enumerate(nodeNames):
             deviceIndex = f"cigre_{nodeName}"
@@ -55,8 +57,17 @@ class CIGREMV14System(System):
         network = {"A": incidence, "R": branchR, "L": branchL, "busNames": nodeNames}
         super().__init__("CIGREMV14System", network, devices,
                          {"Vbase": 1, "Sbase": p["Sbase_VA"], "frequency_Hz": p["frequency_Hz"]}, referenceMap)
+        self.solverSettings["max_step"] = p["maximumStep_tau"] / (2 * np.pi * p["frequency_Hz"])
         self.parameters, self.parameterNames = p, list(p)
         self.data, self.busCapacitance = data, busCapacitance
+        self.eventName = "faultClearing"
+        self.eventDirection = 1
+        self.eventTime_s = p["clearTime_s"]
+        if p["clearMode"] == "angle":
+            self.eventStartTime_s = p["angleClearEligible_s"]
+        self.eventStateIndex = self.stateNames.index(
+            f"delta{self.devices['vsg'].index}"
+        )
 
     @staticmethod
     def buildCigreData():
@@ -90,13 +101,12 @@ class CIGREMV14System(System):
             busCapacitance[nodeNames.index(toNode)] += Cline / 2
         return A, R, L, nodeNames, busCapacitance
 
-    @staticmethod
-    def sourceVoltage(time_s, p, clearMode, clearingTime_s):
+    def sourceVoltage(self, time_s, p):
         time_s = np.asarray(time_s)
-        if clearMode == "angle":
+        if p["clearMode"] == "angle":
             faulted = time_s >= p["faultStartAngle_s"]
-            if np.isfinite(clearingTime_s):
-                faulted &= time_s < clearingTime_s
+            if np.isfinite(self.eventTime_s):
+                faulted &= time_s < self.eventTime_s
             voltage = np.ones(time_s.shape)
             voltage[faulted] = p["angleFaultVoltage_pu"]
             return float(voltage) if voltage.ndim == 0 else voltage
@@ -105,55 +115,15 @@ class CIGREMV14System(System):
         values = [1, 1, p["fixedFaultVoltage_pu"], p["fixedFaultVoltage_pu"], 1, 1]
         return np.interp(time_s, times, values, right=1)
 
-    @staticmethod
-    def eventTimes(p, clearMode, clearingTime_s):
-        if clearMode == "angle":
-            return [p["faultStartAngle_s"]] + ([clearingTime_s] if np.isfinite(clearingTime_s) else [])
-        return [p["fixedFaultStart_s"], p["fixedFaultComplete_s"], p["fixedClearStart_s"], p["fixedClearComplete_s"]]
-
-    @staticmethod
-    def makeOutputTime(endTime_s, step_s, requiredTimes_s):
-        result = np.arange(0, endTime_s + step_s / 2, step_s)
-        result = np.r_[result[result <= endTime_s], endTime_s]
-        required = np.asarray(requiredTimes_s, dtype=float).reshape(-1)
-        required = required[np.isfinite(required) & (required >= 0) & (required <= endTime_s)]
-        return np.unique(np.r_[result, required])
-
-    def simulateFault(self, mode, x0, *, saveSnapshot=True):
-        p, refs = self.parameters, self.getReference()
-        sourceIndex = self.referenceNames.index(str(self.devices["source"].uref[0]))
-        deltaIndex = self.stateNames.index(f"delta{self.devices['vsg'].index}")
-        self.rlGrid.refreshParameters()
-        started, clearingTime_s = perf_counter(), p["fixedClearStart_s"]
-        if mode == "angle":
-            streaming = self.outputJsonFactory.streaming
-            self.outputJsonFactory.streaming = False
-            detectionRefs = list(refs)
-            detectionRefs[sourceIndex] = lambda t: float(t < p["faultStartAngle_s"]) + p["angleFaultVoltage_pu"] * float(t >= p["faultStartAngle_s"])
-            td = self.makeOutputTime(p["validationTime_s"], min(p["outputStep_s"], 2e-5),
-                                     [p["faultStartAngle_s"], p["angleClearEligible_s"]])
-            detected, td, _ = self.integrate(td, x0, detectionRefs,
-                                             p["maximumStep_tau"] / (2 * np.pi * self.base["frequency_Hz"]),
-                                             [p["faultStartAngle_s"]], None)
-            self.outputJsonFactory.streaming = streaming
-            delta = (detected[:, deltaIndex] + np.pi) % (2 * np.pi) - np.pi
-            eligible = np.flatnonzero((td >= p["angleClearEligible_s"]) & (delta > p["angleClearLower_rad"]) & (delta < p["angleClearUpper_rad"]))
-            clearingTime_s = td[eligible[0]] if eligible.size else np.inf
-        refs[sourceIndex] = lambda t: self.sourceVoltage(t, p, mode, clearingTime_s)
-        breaks = self.eventTimes(p, mode, clearingTime_s)
-        time_s = self.makeOutputTime(p["validationTime_s"], p["outputStep_s"], breaks)
-        state, time_s, events = self.integrate(time_s, x0, refs,
-                                               p["maximumStep_tau"] / (2 * np.pi * self.base["frequency_Hz"]),
-                                               breaks, None)
-        net = self.calculateNetworkSignals(time_s, state, refs)
-        result = {"time_s": time_s, "state": state, "stateNames": self.stateNames,
-                  "signals": self.calculateSignals(time_s, state, net), "referenceNames": self.referenceNames,
-                  "referenceTrace": net["referenceTrace"], "initialization": None, "events": events,
-                  "parameters": self.parameters, "simulationTime_s": perf_counter() - started,
-                  "clearingTime_s": clearingTime_s}
-        if saveSnapshot:
-            _, result["frontendDescriptor"] = self.outputJsonFactory.saveSnapshot(result)
-        return result
+    def eventHandler(self, _time_s, state):
+        p = self.parameters
+        angle = (state[self.eventStateIndex] + np.pi) % (2 * np.pi) - np.pi
+        if p["angleClearLower_rad"] < angle < p["angleClearUpper_rad"]:
+            return 0.0
+        return min(
+            angle - p["angleClearLower_rad"],
+            p["angleClearUpper_rad"] - angle,
+        )
 
     def calculateSignals(self, time_s, state, net):
         state, time_s = np.asarray(state), np.asarray(time_s)

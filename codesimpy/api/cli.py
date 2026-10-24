@@ -66,13 +66,15 @@ class CLI:
             self.runSmallSignal(requestId, params)
         elif method == "interaction.run":
             self.runInteraction(requestId, params)
+        elif method == "transientVoltage.run":
+            self.runTransientVoltage(requestId, params)
         elif method == "server.shutdown":
             self.outputJsonFactory.writeResponse(requestId, {"shutdown": True})
             self.running = False
         else:
             raise KeyError(f"unknown method: {method}")
 
-    def loadModel(self, params: dict[str, Any]):
+    def loadModel(self, params: dict[str, Any], *, saveSnapshot: bool = True):
         systemName = params.get("systemName", self.systemName)
         parameters = params.get("parameters", {})
         options = params.get("options", {})
@@ -95,7 +97,7 @@ class CLI:
             self.systemName = systemName
             self.modelKey = modelKey
             self.operatingPoint = None
-        return self.system.outputJsonFactory.saveSnapshot({})
+        return self.system.outputJsonFactory.saveSnapshot() if saveSnapshot else (None, None)
 
     def resetModel(self) -> None:
         self.system = None
@@ -115,6 +117,7 @@ class CLI:
 
     def runSimulation(self, requestId: Any, params: dict[str, Any]) -> None:
         self.loadModel(params)
+        self.system.outputJsonFactory.latestTransientVoltage = {}
         operatingPoint = self.getOperatingPoint()
         time_s = np.arange(
             self.options["StartTime_s"], self.options["EndTime_s"],
@@ -134,22 +137,12 @@ class CLI:
             systemName=self.systemName, sampleCount=time_s.size,
         )
         try:
-            if self.systemName in ("VSGSMIBSystem", "VSGSMIBAVCSystem"):
-                simulation = self.system.simulateFault(
-                    time_s, operatingPoint["state"], saveSnapshot=False,
-                )
-            elif self.systemName == "CIGREMV14System":
-                simulation = self.system.simulateFault(
-                    self.options["FaultMode"], operatingPoint["state"],
-                    saveSnapshot=False,
-                )
-            else:
-                simulation = self.system.simulate(
-                    time_s, InitialState=operatingPoint["state"],
-                    MaxStep_s=self.options["MaxStep_s"],
-                    Breakpoints_s=self.options["Breakpoints_s"],
-                    saveSnapshot=False,
-                )
+            simulation = self.system.simulate(
+                time_s, InitialState=operatingPoint["state"],
+                SolverSettings=self.options["SolverSettings"],
+                Breakpoints_s=self.options["Breakpoints_s"],
+                saveSnapshot=False,
+            )
             simulation["initialization"] = operatingPoint["initialization"]
             snapshotFile, descriptor = self.system.outputJsonFactory.saveSnapshot(simulation)
             self.outputJsonFactory.writeEvent(
@@ -165,7 +158,7 @@ class CLI:
     def runSmallSignal(self, requestId: Any, params: dict[str, Any]) -> None:
         self.loadModel(params)
         analysis = self.system.smallSignal.analyze(self.getOperatingPoint())
-        snapshotFile, descriptor = self.system.outputJsonFactory.saveSnapshot({})
+        snapshotFile, descriptor = self.system.outputJsonFactory.saveSnapshot()
         self.outputJsonFactory.writeResponse(requestId, {
             "descriptor": descriptor,
             "snapshotFile": str(snapshotFile),
@@ -176,7 +169,30 @@ class CLI:
         self.loadModel(params)
         self.system.smallSignal.analyze(self.getOperatingPoint())
         self.runInteractionAnalysis()
-        snapshotFile, descriptor = self.system.outputJsonFactory.saveSnapshot({})
+        snapshotFile, descriptor = self.system.outputJsonFactory.saveSnapshot()
+        self.outputJsonFactory.writeResponse(requestId, {
+            "descriptor": descriptor, "snapshotFile": str(snapshotFile),
+        })
+
+    def runTransientVoltage(self, requestId: Any, params: dict[str, Any]) -> None:
+        if self.system is None or params.get("systemName", self.systemName) != self.systemName:
+            self.loadModel(params, saveSnapshot=False)
+        simulation = (self.system.outputJsonFactory.latestSimulation
+                      or self.system.outputJsonFactory.loadSimulationFromSnapshot())
+        if not simulation or "state" not in simulation or "time_s" not in simulation:
+            raise ValueError("no compatible simulation was found in memory or the saved JSON snapshot")
+        slowStateNames = params.get("slowStateNames", [])
+        if isinstance(slowStateNames, str):
+            slowStateNames = [slowStateNames]
+        decomposition = self.system.transientVoltage.decompose(
+            simulation, slowStateNames,
+            angleStateName=params.get("angleStateName"),
+            maxSamples=params.get("maxSamples"),
+        )
+        self.system.outputJsonFactory.latestTransientVoltage = (
+            self.system.outputJsonFactory.serializeTransientVoltage(decomposition)
+        )
+        snapshotFile, descriptor = self.system.outputJsonFactory.saveSnapshot()
         self.outputJsonFactory.writeResponse(requestId, {
             "descriptor": descriptor, "snapshotFile": str(snapshotFile),
         })

@@ -84,6 +84,7 @@ class IEEE13System(System):
         name = "IEEE13System_converters" if EnableConverters else "IEEE13System_passive"
         super().__init__(name, network, devices,
                          {"Vbase": 1, "Sbase": p["Sbase_VA"], "frequency_Hz": p["wBase"] / (2 * np.pi)}, referenceMap)
+        self.solverSettings["max_step"] = 1e-3 / p["wBase"]
         self.parameters, self.parameterNames = p, list(p)
         self.enableConverters = EnableConverters
         self.data = {"busTable": busTable, "branchTable": branchTable, "loadTable": loadTable, **data}

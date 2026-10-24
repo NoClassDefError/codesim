@@ -82,6 +82,7 @@ The topology toolbar also provides refresh, automatic layout, and layout-save ac
 | System | Description |
 | --- | --- |
 | `HybridSystem` | Current-limited GFM with an optional parallel GFL connected to an infinite bus |
+| `HybridGFMGFLSystem` | Four-node CIGRE reduction retaining buses 7, 8, 9, with a GFL, GFM, and infinite bus |
 | `VSGSMIBSystem` | VSG single-machine infinite-bus fault study using `VSGCC` or `VSGCL` |
 | `VSGSMIBAVCSystem` | VSG single-machine infinite-bus fault study using cascaded voltage/current control (`VSGCCAVC`) |
 | `GFLLVRTSystem` | Grid-following converter low-voltage ride-through study |
@@ -107,7 +108,7 @@ codesim/
 │  │  ├─ system.py               Initialization, integration, and signals
 │  │  ├─ rl_grid.py              Symbolic/numerical RL network model
 │  │  ├─ small_signal_analyzer.py
-│  ├─ systems/                   Eight runnable system definitions
+│  ├─ systems/                   Nine runnable system definitions
 │  ├─ tests/                     Python unit and service tests
 │  └─ README.md                  Python package documentation
 ├─ frontend/

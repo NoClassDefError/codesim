@@ -9,6 +9,7 @@ from typing import Any
 
 import numpy as np
 import sympy as sp
+from scipy.integrate import solve_ivp
 from scipy.optimize import root
 
 from .rl_grid import RLGrid
@@ -37,8 +38,18 @@ class System(ABC):
         self.network = network
         self.devices = devices
         self.base = dict(base)
+        self.solverSettings = {
+            "method": "RK45",
+            "max_step": 5e-3 / (2 * np.pi * self.base["frequency_Hz"]),
+            "rtol": 1e-6,
+            "atol": 1e-9,
+        }
         self.parameters: dict[str, Any] = {}
         self.parameterNames: list[str] = []
+        self.eventStartTime_s: float | None = None  # None disables event detection.
+        self.eventDirection = 0.0  # -1: falling, 0: either, +1: rising crossing.
+        self.eventName = "event"  # Label recorded in the simulation result.
+        self.eventTime_s = np.inf  # Exact detected time; inf means not triggered.
         self.retainedNodeIndices = [i for i, device in enumerate(Vdev) if device is not None]
         self.busNames = [str(busNames[i]) for i in self.retainedNodeIndices]
         self.rlGrid = RLGrid(
@@ -210,19 +221,29 @@ class System(ABC):
 
     def simulate(
         self, time_s: Any, *, InitialState: Any = None,
-        MaxStep_s: float = 5e-3 / (2 * np.pi * 50), Breakpoints_s: Any = (),
-        Events: Callable[..., float] | None = None,
+        SolverSettings: Mapping[str, Any] | None = None,
+        Breakpoints_s: Any = (),
         ReferenceMap: Any = None, saveSnapshot: bool = True,
     ) -> dict[str, Any]:
+        started = perf_counter()
         time_s = np.asarray(time_s, dtype=float).reshape(-1)
+        if self.eventStartTime_s is not None:
+            self.eventTime_s = np.inf
         references = self.getReference(source=ReferenceMap)
         initialization = None
         if InitialState is None:
             point = self.initialize(time_s[0], Reference=self.getReference(time_s[0], references))
             InitialState, initialization = point["state"], point["initialization"]
+        solverSettings = dict(self.solverSettings)
+        solverSettings.update(SolverSettings or {})
+        reserved = {"args", "dense_output", "events", "t_eval"} & solverSettings.keys()
+        if reserved:
+            raise ValueError(
+                f"solver settings managed by System: {', '.join(sorted(reserved))}"
+            )
         self.rlGrid.refreshParameters()
         state, time_s, events = self.integrate(
-            time_s, InitialState, references, MaxStep_s, Breakpoints_s, Events
+            time_s, InitialState, references, solverSettings, Breakpoints_s,
         )
         networkSignals = self.calculateNetworkSignals(time_s, state, references)
         signals = self.calculateSignals(time_s, state, networkSignals)
@@ -232,83 +253,122 @@ class System(ABC):
             "referenceTrace": networkSignals["referenceTrace"],
             "initialization": initialization, "events": events,
             "parameters": self.parameters,
+            "simulationTime_s": perf_counter() - started,
         }
+        if "clearTime_s" in self.parameters:
+            result["clearingTime_s"] = self.eventTime_s
         if saveSnapshot:
             _, result["frontendDescriptor"] = self.outputJsonFactory.saveSnapshot(result)
         return result
 
     def integrate(
         self, time_s: Any, initialState: Any, references: Any,
-        maximumStep_s: float, breakpoints_s: Any = (),
-        eventFunction: Callable[..., float] | None = None,
+        solverSettings: Mapping[str, Any], breakpoints_s: Any = (),
     ):
         time_s = np.asarray(time_s, dtype=float).reshape(-1)
         initialState = np.asarray(initialState, dtype=float).reshape(-1)
         breakpoints = np.unique(np.asarray(breakpoints_s, dtype=float).reshape(-1))
-        breakpoints = breakpoints[np.isfinite(breakpoints)]
-        state = np.zeros((time_s.size, initialState.size)); state[0] = initialState
+        breakpoints = breakpoints[
+            np.isfinite(breakpoints)
+            & (breakpoints > time_s[0])
+            & (breakpoints < time_s[-1])
+        ]
+        state = np.empty((time_s.size, initialState.size)); state[0] = initialState
         currentState, currentTime = initialState.copy(), time_s[0]
-        event = {"time_s": [], "state": []}
+        events = {"name": [], "time_s": [], "state": []}
         chunkStart = 0
         wBase = 2 * np.pi * self.base["frequency_Hz"]
-        for outputIndex in range(1, time_s.size):
-            targetTime = time_s[outputIndex]
-            while currentTime < targetTime:
-                nextTime = min(currentTime + maximumStep_s, targetTime)
-                future = breakpoints[breakpoints > currentTime]
-                if future.size:
-                    nextTime = min(nextTime, future[0])
-                step = nextTime - currentTime
-                stageTimes = (currentTime, currentTime + step / 2, currentTime + step / 2, nextTime)
-                k1 = wBase * self.rlGrid.f_numeric(currentState, self.getReference(stageTimes[0], references))
-                k2 = wBase * self.rlGrid.f_numeric(currentState + step * k1 / 2, self.getReference(stageTimes[1], references))
-                k3 = wBase * self.rlGrid.f_numeric(currentState + step * k2 / 2, self.getReference(stageTimes[2], references))
-                k4 = wBase * self.rlGrid.f_numeric(currentState + step * k3, self.getReference(stageTimes[3], references))
-                nextState = currentState + step * (k1 + 2 * k2 + 2 * k3 + k4) / 6
-                if not np.isfinite(nextState).all():
-                    raise FloatingPointError(f"simulation produced nonfinite states at {nextTime:.9g} s")
-                if eventFunction:
-                    fraction = eventFunction(currentTime, currentState, nextTime, nextState)
-                    if fraction is not None and np.isfinite(fraction):
-                        if not 0 <= fraction <= 1:
-                            raise ValueError("event crossing fraction must lie in [0, 1]")
-                        eventTime = currentTime + fraction * step
-                        eventState = currentState + fraction * (nextState - currentState)
-                        state[outputIndex] = eventState
-                        time_s[outputIndex] = eventTime
-                        event = {"time_s": eventTime, "state": eventState}
-                        if self.outputJsonFactory.streaming:
-                            chunkTime = time_s[chunkStart:outputIndex + 1]
-                            chunkState = state[chunkStart:outputIndex + 1]
-                            networkSignals = self.calculateNetworkSignals(
-                                chunkTime, chunkState, references
-                            )
-                            signals = self.calculateSignals(chunkTime, chunkState, networkSignals)
-                            self.outputJsonFactory.writeSimulationChunk(chunkTime, chunkState, signals)
-                        return state[:outputIndex + 1], time_s[:outputIndex + 1], event
-                currentTime, currentState = nextTime, nextState
-            state[outputIndex] = currentState
-            if self.outputJsonFactory.streaming and (
-                outputIndex - chunkStart + 1 >= self.outputJsonFactory.chunkSize
-                or outputIndex == time_s.size - 1
-            ):
-                chunkTime = time_s[chunkStart:outputIndex + 1]
-                chunkState = state[chunkStart:outputIndex + 1]
-                networkSignals = self.calculateNetworkSignals(
-                    chunkTime, chunkState, references
-                )
-                signals = self.calculateSignals(chunkTime, chunkState, networkSignals)
-                self.outputJsonFactory.writeSimulationChunk(chunkTime, chunkState, signals)
-                chunkStart = outputIndex + 1
-        if self.outputJsonFactory.streaming and chunkStart < time_s.size:
-            chunkTime = time_s[chunkStart:]
-            chunkState = state[chunkStart:]
+
+        def derivative(t: float, value: np.ndarray) -> np.ndarray:
+            reference = self.getReference(t, references)
+            return wBase * np.asarray(
+                self.rlGrid.f_numeric(value, reference), dtype=float
+            )
+
+        def emitChunk(start: int, stop: int) -> None:
+            chunkTime = time_s[start:stop]
+            chunkState = state[start:stop]
             networkSignals = self.calculateNetworkSignals(
                 chunkTime, chunkState, references
             )
             signals = self.calculateSignals(chunkTime, chunkState, networkSignals)
-            self.outputJsonFactory.writeSimulationChunk(chunkTime, chunkState, signals)
-        return state, time_s, event
+            self.outputJsonFactory.writeSimulationChunk(
+                chunkTime, chunkState, signals
+            )
+
+        eventPending = self.eventStartTime_s is not None
+        eventStart = [] if self.eventStartTime_s is None else [self.eventStartTime_s]
+        boundaries = np.r_[breakpoints, eventStart, time_s[-1]]
+        if self.outputJsonFactory.streaming:
+            chunkSize = max(1, int(self.outputJsonFactory.chunkSize))
+            chunkEnds = np.arange(chunkSize - 1, time_s.size, chunkSize)
+            boundaries = np.r_[boundaries, time_s[chunkEnds]]
+        boundaries = np.unique(boundaries)
+        boundaries = boundaries[
+            np.isfinite(boundaries)
+            & (boundaries > currentTime)
+            & (boundaries <= time_s[-1])
+        ]
+        nextOutput = 1
+
+        for boundary in boundaries:
+            while currentTime < boundary:
+                eventActive = (
+                    eventPending and self.eventStartTime_s <= currentTime
+                )
+                scipyEvent = None
+                if eventActive:
+                    def scipyEvent(t, value):
+                        return self.eventHandler(t, value)
+                    scipyEvent.terminal = True
+                    scipyEvent.direction = self.eventDirection
+
+                solution = solve_ivp(
+                    derivative, (currentTime, float(boundary)), currentState,
+                    dense_output=True, events=scipyEvent, **solverSettings,
+                )
+                if not solution.success:
+                    raise RuntimeError(
+                        f"simulation integration failed at {solution.t[-1]:.9g} s: "
+                        f"{solution.message}"
+                    )
+                if not np.isfinite(solution.y).all():
+                    raise FloatingPointError(
+                        f"simulation produced nonfinite states at {solution.t[-1]:.9g} s"
+                    )
+
+                currentTime = float(solution.t[-1])
+                currentState = solution.y[:, -1]
+                stopOutput = int(np.searchsorted(time_s, currentTime, side="right"))
+                if stopOutput > nextOutput:
+                    targets = time_s[nextOutput:stopOutput]
+                    state[nextOutput:stopOutput] = solution.sol(targets).T
+                    nextOutput = stopOutput
+
+                if not eventActive or not solution.t_events[0].size:
+                    break
+                currentTime = float(solution.t_events[0][0])
+                currentState = solution.y_events[0][0]
+                self.eventTime_s = currentTime
+                eventPending = False
+                events["name"].append(self.eventName)
+                events["time_s"].append(currentTime)
+                events["state"].append(currentState.copy())
+
+            if self.outputJsonFactory.streaming:
+                available = nextOutput
+                while available - chunkStart >= chunkSize:
+                    emitChunk(chunkStart, chunkStart + chunkSize)
+                    chunkStart += chunkSize
+
+        if self.outputJsonFactory.streaming and chunkStart < time_s.size:
+            emitChunk(chunkStart, time_s.size)
+        return state, time_s, events
+
+    @abstractmethod
+    def eventHandler(self, time_s: float, state: np.ndarray) -> float:
+        """Return the model-specific zero-crossing value."""
+        raise NotImplementedError
 
     def calculateNetworkSignals(self, time_s: Any, state: Any, references: Any) -> dict[str, Any]:
         state, time_s = np.asarray(state), np.asarray(time_s)

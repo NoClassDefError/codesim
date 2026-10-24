@@ -18,7 +18,11 @@ class GFLLVRTSystem(System):
         devices = {"Vdev": [capacitor, source], "Idev": [gfl, zero], "gfl": gfl, "capacitor": capacitor, "source": source}
         network = {"A": np.array([[1.0], [-1.0]]), "R": [p["Rg"]], "L": [p["Lg"]],
                    "busNames": ["PCC", "Infinite bus"]}
-        super().__init__("GFLLVRTSystem", network, devices, {"Vbase": 1, "Sbase": 8100, "frequency_Hz": 50}, refs)
+        super().__init__(
+            "GFLLVRTSystem", network, devices,
+            {"Vbase": 1, "Sbase": 8100, "frequency_Hz": 50}, refs,
+        )
+        self.solverSettings["max_step"] = 0.5e-4 / (2 * np.pi * p["frequency_Hz"])
         self.parameters, self.parameterNames = p, list(p)
 
     def calculateSignals(self, time_s, state, net):

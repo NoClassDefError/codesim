@@ -57,6 +57,19 @@ export function runAnalysis(
   vscode?.postMessage({ type: 'runAnalysis', analysis, systemName });
 }
 
+export function runTransientVoltage(
+  systemName: string,
+  slowStateNames: string[],
+  maxSamples: number,
+): void {
+  vscode?.postMessage({
+    type: 'runTransientVoltage',
+    systemName,
+    slowStateNames,
+    maxSamples,
+  });
+}
+
 export function updateSystemParameter(name: string, value: ParameterValue): void {
   vscode?.postMessage({ type: 'updateSystemParameter', parameterName: name, parameterValue: value });
 }

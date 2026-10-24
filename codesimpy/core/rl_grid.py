@@ -107,6 +107,8 @@ class RLGrid:
         nodeVoltage = self.g[voltageStart:currentStart, :]
         deviceCurrent = self.g[currentStart:currentStart + 2 * self.n, :]
         residualParts: list[sp.Matrix] = [branchInit]
+        residualStateIndices = list(range(2 * self.b))
+        stateOffset = 2 * self.b
         for i, (Vdev, Idev) in enumerate(zip(self.Vdev, self.Idev)):
             indices = [2 * i, 2 * i + 1]
             voltageInput = [networkCurrent[j] - deviceCurrent[j] for j in indices]
@@ -115,11 +117,22 @@ class RLGrid:
             voltageInit, currentInit = Vdev.getFInit(), Idev.getFInit()
             voltageInit = sp.Matrix(voltageInit) if len(voltageInit) else sp.zeros(0, 1)
             currentInit = sp.Matrix(currentInit) if len(currentInit) else sp.zeros(0, 1)
+            residualStateIndices.extend(
+                stateOffset + index for index in Vdev.getFInitStateIndices()
+            )
+            stateOffset += len(Vdev.x)
+            residualStateIndices.extend(
+                stateOffset + index for index in Idev.getFInitStateIndices()
+            )
+            stateOffset += len(Idev.x)
             residualParts.extend([
                 voltageInit.subs(substitutions, simultaneous=True),
                 currentInit.subs(substitutions, simultaneous=True),
             ])
         self._f_init_residual = sp.Matrix.vstack(*residualParts)
+        self.fInitStateIndices = np.asarray(residualStateIndices, dtype=int)
+        if self.fInitStateIndices.size != self._f_init_residual.rows:
+            raise ValueError("initialization residual/state mapping is inconsistent")
         self.A_sym = self.f_init_sym.jacobian(self.x)
         if self.A_sym.has(sp.Derivative):
             raise ValueError("state Jacobian contains unresolved symbolic derivatives")

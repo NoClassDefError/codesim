@@ -36,6 +36,7 @@ class HybridSystem(System):
                    "busNames": ["Infinite bus", "PCC"]}
         super().__init__(name, network, devices,
                          {"Vbase": p["Vbase"], "Sbase": p["Sbase"], "frequency_Hz": p["frequency_Hz"]}, refs)
+        self.solverSettings["max_step"] = 5e-3 / (2 * np.pi * p["frequency_Hz"])
         self.parameters, self.parameterNames, self.enableGFL = p, list(p), EnableGFL
 
     def calculateSignals(self, time_s, state, networkSignals):

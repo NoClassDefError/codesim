@@ -1,6 +1,5 @@
 """Single grid-forming converter connected to an infinite bus."""
 
-from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -44,85 +43,31 @@ class VSGSMIBSystem(System):
             "frequency_Hz": p["frequency_Hz"],
         }
         super().__init__(f"VSGSMIBSystem_{DeviceModel}", network, devices, base, refs)
+        self.solverSettings["max_step"] = 5e-3 / (2 * np.pi * p["frequency_Hz"])
         self.parameters = p
         self.parameterNames = list(p)
         self.clearingState = ClearingState
-
-    @staticmethod
-    def voltageReference(t: float, p: dict[str, Any]) -> float:
-        fall = min(1.0, max(0.0, (t - p["faultStart_s"]) / p["voltageRamp_s"]))
-        rise = min(1.0, max(0.0, (t - p["clearTime_s"]) / p["voltageRamp_s"]))
-        return 1 - (1 - p["faultVoltage_pu"]) * fall + (1 - p["faultVoltage_pu"]) * rise
-
-    @staticmethod
-    def angleCrossing(
-        t: float, a: np.ndarray, nextTime: float, b: np.ndarray,
-        eligible: float, index: int, angle: float,
-    ) -> float:
-        if t < eligible:
-            return np.nan
-        start, stop = a[index], b[index]
-        turn = np.ceil((start - angle) / (2 * np.pi)) if stop >= start else np.floor((start - angle) / (2 * np.pi))
-        target = angle + 2 * np.pi * turn
-        if start == target:
-            return 0.0
-        fraction = (target - start) / (stop - start) if stop != start else np.nan
-        return float(fraction) if 0 < fraction <= 1 else np.nan
-
-    def simulateFault(
-        self, time_s: Any, x0: Any, *, saveSnapshot: bool = True,
-    ) -> dict[str, Any]:
-        time_s = np.asarray(time_s, dtype=float).reshape(-1)
-        p = dict(self.parameters)
-        refs = self.getReference()
-        sourceIndex = self.referenceNames.index(str(self.devices["source"].uref[0]))
-        deltaIndex = self.stateNames.index(f"{self.clearingState}{self.devices['vsg'].index}")
-        started = perf_counter()
-        self.rlGrid.refreshParameters()
-        clearingTime_s = p["clearTime_s"]
-        eventFcn = None
-        eligible = p["faultStart_s"] + p["minimumFaultDuration_s"]
+        self.eventName = "faultClearing"
+        self.eventTime_s = p["clearTime_s"]
         if p["clearMode"] == "angle":
             p["clearTime_s"] = np.inf
-            refs[sourceIndex] = lambda t: self.voltageReference(t, p)
-            eventFcn = lambda t, a, tn, b: self.angleCrossing(
-                t, a, tn, b, eligible, deltaIndex, p["clearAngle_rad"]
+            self.eventStartTime_s = (
+                p["faultStart_s"] + p["minimumFaultDuration_s"]
             )
-        breakpoints = [
-            p["faultStart_s"], p["faultStart_s"] + p["voltageRamp_s"],
-            eligible, p["clearTime_s"], p["clearTime_s"] + p["voltageRamp_s"],
-        ]
-        state, t, events = self.integrate(
-            time_s, x0, refs, 1e-3 / (2 * np.pi * self.base["frequency_Hz"]),
-            breakpoints, eventFcn,
+        self.eventStateIndex = self.stateNames.index(
+            f"{self.clearingState}{self.devices['vsg'].index}"
         )
-        if p["clearMode"] == "angle" and np.size(events["time_s"]):
-            clearingTime_s = float(events["time_s"])
-            p["clearTime_s"] = clearingTime_s
-            refs[sourceIndex] = lambda value: self.voltageReference(value, p)
-            remaining = np.unique(np.r_[clearingTime_s, time_s[time_s > clearingTime_s]])
-            if remaining.size > 1:
-                recovery, recoveryTime, _ = self.integrate(
-                    remaining, state[-1], refs,
-                    1e-3 / (2 * np.pi * self.base["frequency_Hz"]),
-                    [clearingTime_s + p["voltageRamp_s"]], None,
-                )
-                state = np.vstack((state, recovery[1:]))
-                t = np.r_[t, recoveryTime[1:]]
-        networkSignals = self.calculateNetworkSignals(t, state, refs)
-        signals = self.calculateSignals(t, state, networkSignals)
-        result = {
-            "time_s": t, "state": state, "stateNames": self.stateNames,
-            "signals": signals, "referenceNames": self.referenceNames,
-            "referenceTrace": networkSignals["referenceTrace"],
-            "initialization": None, "events": events,
-            "parameters": self.parameters,
-            "simulationTime_s": perf_counter() - started,
-            "clearingTime_s": clearingTime_s,
-        }
-        if saveSnapshot:
-            _, result["frontendDescriptor"] = self.outputJsonFactory.saveSnapshot(result)
-        return result
+
+    def voltageReference(self, t: float, p: dict[str, Any]) -> float:
+        fall = min(1.0, max(0.0, (t - p["faultStart_s"]) / p["voltageRamp_s"]))
+        rise = min(1.0, max(0.0, (t - self.eventTime_s) / p["voltageRamp_s"]))
+        return 1 - (1 - p["faultVoltage_pu"]) * fall + (1 - p["faultVoltage_pu"]) * rise
+
+    def eventHandler(self, _time_s: float, state: np.ndarray) -> float:
+        p = self.parameters
+        return float(np.sin(
+            (state[self.eventStateIndex] - p["clearAngle_rad"]) / 2
+        ))
 
     def calculateSignals(self, time_s: Any, state: Any, net: dict[str, Any]):
         time_s, state = np.asarray(time_s), np.asarray(state)

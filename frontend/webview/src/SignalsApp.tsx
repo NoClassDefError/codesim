@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  isInsideVsCode,
   onSimulationChunk,
   onSimulationStarted,
   onSystemSnapshot,
@@ -8,19 +9,23 @@ import {
 import { InteractionAnalysisPanel } from './components/InteractionAnalysisPanel';
 import { SmallSignalPanel } from './components/SmallSignalPanel';
 import { Toolbar } from './components/Toolbar';
+import { TransientVoltagePanel } from './components/TransientVoltagePanel';
 import { WaveformPanel } from './components/WaveformPanel';
 import { mockSystem } from './model/mockSystem';
 import { mergeSimulationSignals } from './model/signalModel';
 import type { SystemSnapshot } from './model/types';
 
 export function SignalsApp() {
-  const [snapshot, setSnapshot] = useState<SystemSnapshot>(mockSystem);
-  const [activeTab, setActiveTab] = useState<'time' | 'small-signal' | 'interaction'>('time');
+  const [snapshot, setSnapshot] = useState<SystemSnapshot>(() => (
+    isInsideVsCode() ? { ...mockSystem, signals: [] } : mockSystem
+  ));
+  const [activeTab, setActiveTab] = useState<'time' | 'transient-voltage' | 'small-signal' | 'interaction'>('time');
 
   useEffect(() => {
     const unsubscribeSnapshot = onSystemSnapshot(setSnapshot);
     const unsubscribeStarted = onSimulationStarted(() => {
       setActiveTab('time');
+      setSnapshot((current) => ({ ...current, signals: [] }));
     });
     const unsubscribeChunk = onSimulationChunk((chunk) => {
       setSnapshot((current) => ({
@@ -54,6 +59,13 @@ export function SignalsApp() {
           </button>
           <button
             type="button"
+            className={activeTab === 'transient-voltage' ? 'active' : ''}
+            onClick={() => setActiveTab('transient-voltage')}
+          >
+            Voltage decomposition
+          </button>
+          <button
+            type="button"
             className={activeTab === 'small-signal' ? 'active' : ''}
             onClick={() => setActiveTab('small-signal')}
           >
@@ -69,6 +81,8 @@ export function SignalsApp() {
         </nav>
         {activeTab === 'time' ? (
           <WaveformPanel snapshot={snapshot} />
+        ) : activeTab === 'transient-voltage' ? (
+          <TransientVoltagePanel snapshot={snapshot} />
         ) : activeTab === 'small-signal' ? (
           <SmallSignalPanel snapshot={snapshot} />
         ) : (

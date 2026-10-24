@@ -180,6 +180,39 @@ export interface InteractionAnalysisDescriptor {
   };
 }
 
+export interface ComplexTraceDescriptor {
+  real: Array<Array<number | null>>;
+  imaginary: Array<Array<number | null>>;
+  magnitude: Array<Array<number | null>>;
+}
+
+export interface TransientVoltageDescriptor {
+  available: boolean;
+  time_s: number[];
+  sourceSampleCount?: number;
+  sampleIndices?: number[];
+  busNames: string[];
+  requestedSlowStateNames?: string[];
+  slowStateNames: string[];
+  fastStateNames: string[];
+  angleStateName: string;
+  angleRate_rad_s: number[];
+  slowStateRates_per_s: number[][];
+  qssConverged: boolean[];
+  qssResidualNorm: number[];
+  fastJacobianCondition: Array<number | null>;
+  firstOrderAvailable?: boolean[];
+  components: {
+    actual: ComplexTraceDescriptor;
+    qss: ComplexTraceDescriptor;
+    firstOrderError: ComplexTraceDescriptor;
+    firstOrder: ComplexTraceDescriptor;
+    emt: ComplexTraceDescriptor;
+    reconstructed: ComplexTraceDescriptor;
+    reconstructionError: ComplexTraceDescriptor;
+  };
+}
+
 export interface SystemSnapshot {
   schemaVersion: number;
   system: {
@@ -195,6 +228,7 @@ export interface SystemSnapshot {
   signals: SignalDescriptor[];
   smallSignal?: SmallSignalDescriptor;
   interactionAnalysis?: InteractionAnalysisDescriptor;
+  transientVoltage?: TransientVoltageDescriptor;
   layout?: SnapshotLayout;
 }
 

@@ -8,10 +8,11 @@ const viewerCommandId = `${extensionNamespace}.openViewer`;
 const signalsCommandId = `${extensionNamespace}.openSignals`;
 const selectBackendCommandId = `${extensionNamespace}.selectBackendDirectory`;
 const viewerViewId = `${extensionNamespace}.viewer`;
+const backendStatusColorId = 'codesim.backendRunningForeground';
 const defaultSystem = 'VSGSMIBSystem';
 const pythonExtensionId = 'ms-python.python';
 
-type AnalysisKind = 'simulation' | 'smallSignal' | 'interaction';
+type AnalysisKind = 'simulation' | 'smallSignal' | 'interaction' | 'transientVoltage';
 
 interface SourceReference {
 	file: string;
@@ -27,6 +28,8 @@ interface WebviewMessage {
 	analysis?: AnalysisKind;
 	parameterName?: string;
 	parameterValue?: unknown;
+	slowStateNames?: string[];
+	maxSamples?: number;
 }
 
 interface BackendResponse {
@@ -81,6 +84,7 @@ export function activate(context: vscode.ExtensionContext): void {
 class CodeSimHost {
 	private readonly webviews = new Set<vscode.Webview>();
 	private readonly output: vscode.OutputChannel;
+	private readonly backendStatus: vscode.StatusBarItem;
 	private currentSnapshotUri: vscode.Uri | undefined;
 	private currentSnapshot: unknown;
 	private selectedSystem = defaultSystem;
@@ -98,7 +102,37 @@ class CodeSimHost {
 
 	constructor(private readonly context: vscode.ExtensionContext) {
 		this.output = vscode.window.createOutputChannel('CodeSim');
-		context.subscriptions.push(this.output, { dispose: () => { void this.stopBackend(); } });
+		this.backendStatus = vscode.window.createStatusBarItem(
+			`${extensionNamespace}.backendStatus`,
+			vscode.StatusBarAlignment.Left,
+			10,
+		);
+		this.backendStatus.name = 'CodeSim Python backend';
+		this.backendStatus.command = viewerCommandId;
+		this.setBackendStatus(false);
+		this.backendStatus.show();
+		context.subscriptions.push(
+			this.output,
+			this.backendStatus,
+			{ dispose: () => { void this.stopBackend(); } },
+		);
+	}
+
+	private setBackendStatus(running: boolean): void {
+		this.backendStatus.text = running
+			? '$(vm-running) CodeSim: Running'
+			: '$(circle-slash) CodeSim: Stopped';
+		this.backendStatus.tooltip = running
+			? 'CodeSim Python backend is running. Click to open the System Viewer.'
+			: 'CodeSim Python backend is stopped. Click to open the System Viewer.';
+		this.backendStatus.color = running
+			? new vscode.ThemeColor(backendStatusColorId)
+			: undefined;
+		this.backendStatus.accessibilityInformation = {
+			label: running
+				? 'CodeSim Python backend is running'
+				: 'CodeSim Python backend is stopped',
+		};
 	}
 
 	registerWebview(webview: vscode.Webview): () => void {
@@ -167,6 +201,11 @@ class CodeSimHost {
 				break;
 			case 'runAnalysis':
 				await this.runAnalysis(message.analysis, message.systemName);
+				break;
+			case 'runTransientVoltage':
+				await this.runTransientVoltage(
+					message.systemName, message.slowStateNames, message.maxSamples,
+				);
 				break;
 			case 'updateSystemParameter':
 				this.updateSystemParameter(message.parameterName, message.parameterValue);
@@ -247,6 +286,25 @@ class CodeSimHost {
 		await this.runBackend(analysis, selected);
 	}
 
+	private async runTransientVoltage(
+		systemName: string | undefined,
+		slowStateNames: string[] | undefined,
+		maxSamples: number | undefined,
+	): Promise<void> {
+		const selected = await this.validateSystemName(systemName);
+		if (!selected) {
+			return;
+		}
+		if (!slowStateNames?.length) {
+			void vscode.window.showErrorMessage('Select one or more slow states for voltage decomposition.');
+			return;
+		}
+		await this.runBackend('transientVoltage', selected, {
+			slowStateNames,
+			maxSamples,
+		});
+	}
+
 	private async validateSystemName(systemName: string | undefined): Promise<string | undefined> {
 		try {
 			const systems = await this.request<string[]>('getSystems', {});
@@ -307,6 +365,7 @@ class CodeSimHost {
 	private async runBackend(
 		action: 'descriptor' | AnalysisKind,
 		systemName: string,
+		analysisParameters: Record<string, unknown> = {},
 	): Promise<void> {
 		if (this.activeAction) {
 			void vscode.window.showWarningMessage('A CodeSim Python task is already running.');
@@ -330,11 +389,14 @@ class CodeSimHost {
 					? 'simulation.start'
 					: action === 'smallSignal'
 						? 'smallSignal.run'
-						: 'interaction.run';
+						: action === 'interaction'
+							? 'interaction.run'
+							: 'transientVoltage.run';
 			const result = await this.request<Record<string, unknown>>(method, {
 				systemName,
 				parameters: this.parameterOverrides,
 				options: {},
+				...analysisParameters,
 			});
 			if (typeof result.snapshotFile === 'string') {
 				this.currentSnapshotUri = vscode.Uri.file(result.snapshotFile);
@@ -392,10 +454,14 @@ class CodeSimHost {
 			process.stderr.setEncoding('utf8');
 			process.stdout.on('data', (chunk: string) => this.readBackendOutput(chunk));
 			process.stderr.on('data', (chunk: string) => this.output.append(chunk));
-			process.once('spawn', resolve);
+			process.once('spawn', () => {
+				this.setBackendStatus(true);
+				resolve();
+			});
 			process.once('error', (error) => {
 				this.backendProcess = undefined;
 				this.backendStart = undefined;
+				this.setBackendStatus(false);
 				reject(error);
 			});
 			process.once('close', (code) => {
@@ -404,6 +470,7 @@ class CodeSimHost {
 				}
 				this.backendStart = undefined;
 				this.activeAction = undefined;
+				this.setBackendStatus(false);
 				const error = new Error(`CodeSim Python backend exited with code ${code}.`);
 				for (const pending of this.pendingRequests.values()) {
 					pending.reject(error);

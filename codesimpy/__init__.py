@@ -10,7 +10,8 @@ from .core import (
 from .components import (Capacitor, CPL, GFLLongTerm, GFLVSC, Infbus,
                          InductionMotor, PQLoad, SG, VSGCC, VSGCCAVC,
                          VSGCL, VSGLongTerm, ZIP, ZeroCurrent)
-from .systems import (CIGREMV14System, GFLLVRTSystem, HybridSystem,
+from .systems import (CIGREMV14System, GFLLVRTSystem, HybridGFMGFLSystem,
+                      HybridGFMGFLsystem, HybridSystem,
                       IEEE13System, ParallelVSGSystem, SGSMIBSystem,
                       VSGSMIBAVCSystem, VSGSMIBSystem)
 from .api import OutputJsonFactory, SystemFactory
@@ -21,7 +22,8 @@ __all__ = [
     "Capacitor", "CPL", "GFLLongTerm", "GFLVSC", "Infbus",
     "InductionMotor", "PQLoad", "SG", "VSGCC", "VSGCCAVC",
     "VSGCL", "VSGLongTerm", "ZIP", "ZeroCurrent",
-    "CIGREMV14System", "GFLLVRTSystem", "HybridSystem", "IEEE13System",
+    "CIGREMV14System", "GFLLVRTSystem", "HybridSystem",
+    "HybridGFMGFLSystem", "HybridGFMGFLsystem", "IEEE13System",
     "ParallelVSGSystem", "SGSMIBSystem", "VSGSMIBAVCSystem", "VSGSMIBSystem",
     "SystemFactory",
 ]

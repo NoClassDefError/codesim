@@ -28,6 +28,7 @@ class ParallelVSGSystem(System):
                    "busNames": ["VSG 1", "VSG 2", "Infinite bus"]}
         super().__init__("ParallelVSGSystem", network, devices,
                          {"Vbase": p["Vbase"], "Sbase": p["Sbase"], "frequency_Hz": p["frequency_Hz"]}, refs)
+        self.solverSettings["max_step"] = 5e-3 / (2 * np.pi * p["frequency_Hz"])
         self.parameters, self.parameterNames = p, list(p)
 
     def calculateSignals(self, time_s, state, networkSignals):

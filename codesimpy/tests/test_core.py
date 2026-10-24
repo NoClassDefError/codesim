@@ -98,7 +98,7 @@ class CoreTests(unittest.TestCase):
         system = self.makeSystem()
         state = np.array([0, 0, 1, 0, 1, 0], dtype=float)
         result = system.simulate([0, 1e-4, 2e-4], InitialState=state,
-                                 MaxStep_s=5e-5, saveSnapshot=False)
+                                 SolverSettings={"max_step": 5e-5}, saveSnapshot=False)
         np.testing.assert_allclose(result["state"], np.tile(state, (3, 1)), atol=1e-11)
         with tempfile.TemporaryDirectory() as directory:
             system.outputJsonFactory.outputDirectory = Path(directory)
@@ -112,6 +112,35 @@ class CoreTests(unittest.TestCase):
                 len(system.stateNames),
             )
 
+    def test_solve_ivp_integration_respects_breakpoints(self):
+        system = self.makeSystem()
+        initial = np.array([0, 0, 1, 0, 1, 0], dtype=float)
+        state, time_s, event = system.integrate(
+            [0, 1e-4, 2e-4], initial, system.getReference(),
+            {**system.solverSettings, "max_step": 5e-5}, [1.5e-4],
+        )
+
+        np.testing.assert_allclose(time_s, [0, 1e-4, 2e-4])
+        np.testing.assert_allclose(state, np.tile(initial, (3, 1)), atol=1e-11)
+        self.assertEqual(event["time_s"], [])
+
+    def test_solve_ivp_event_continues_from_detected_state(self):
+        system = self.makeSystem()
+        initial = np.array([0, 0, 1, 0, 1, 0], dtype=float)
+        target = 1.25e-4
+        system.eventName = "test"
+        system.eventStartTime_s = 0.0
+        system.eventHandler = lambda time_s, _state: time_s - target
+
+        result = system.simulate(
+            [0, 1e-4, 2e-4], InitialState=initial,
+            SolverSettings={"max_step": 5e-5}, saveSnapshot=False,
+        )
+
+        self.assertEqual(result["events"]["name"], ["test"])
+        self.assertAlmostEqual(result["events"]["time_s"][0], target)
+        np.testing.assert_allclose(result["state"], np.tile(initial, (3, 1)))
+
     def test_small_signal_and_kron_reduction(self):
         analysis = SmallSignalAnalyzer.analyzeModes(
             [[-1, 0], [0, -2]], ["x1", "x2"]
@@ -121,6 +150,20 @@ class CoreTests(unittest.TestCase):
         reducedA, reducedL, reducedR = RLGrid.kronReduction(A, [1, 2], [3, 4], [1])
         self.assertEqual(reducedA.shape, (2, 1))
         np.testing.assert_allclose([reducedL[0], reducedR[0]], [3, 7])
+
+    def test_transient_voltage_uses_system_base_frequency(self):
+        system = self.makeSystem()
+        self.assertFalse(hasattr(system, "wBase"))
+        state = np.array([0, 0, 1, 0, 1, 0], dtype=float)
+        simulation = system.simulate(
+            [0, 1e-4, 2e-4], InitialState=state,
+            SolverSettings={"max_step": 5e-5}, saveSnapshot=False,
+        )
+        decomposition = system.transientVoltage.decompose(
+            simulation, "va_state_1", angleStateName="va_state_1",
+        )
+        self.assertEqual(decomposition["qssVoltage"].shape, (3, 2))
+        self.assertEqual(decomposition["emtVoltage"].shape, (3, 2))
 
 
 if __name__ == "__main__":

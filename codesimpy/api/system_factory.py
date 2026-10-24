@@ -4,13 +4,13 @@ from typing import Any
 
 import numpy as np
 
-from ..systems import (CIGREMV14System, GFLLVRTSystem, HybridSystem,
-                       IEEE13System, ParallelVSGSystem, SGSMIBSystem,
+from ..systems import (CIGREMV14System, GFLLVRTSystem, HybridGFMGFLSystem,
+                       HybridSystem, IEEE13System, ParallelVSGSystem, SGSMIBSystem,
                        VSGSMIBAVCSystem, VSGSMIBSystem)
 
 
 class SystemFactory:
-    systemNames = ["HybridSystem", "VSGSMIBSystem", "VSGSMIBAVCSystem", "GFLLVRTSystem",
+    systemNames = ["HybridSystem", "HybridGFMGFLSystem", "VSGSMIBSystem", "VSGSMIBAVCSystem", "GFLLVRTSystem",
                    "ParallelVSGSystem", "SGSMIBSystem", "IEEE13System", "CIGREMV14System"]
 
     @classmethod
@@ -23,6 +23,8 @@ class SystemFactory:
     def createSystem(name, p, options):
         classes = {
             "HybridSystem": lambda: HybridSystem(p, EnableGFL=options["EnableGFL"]),
+            "HybridGFMGFLSystem": lambda: HybridGFMGFLSystem(p),
+            "HybridGFMGFLsystem": lambda: HybridGFMGFLSystem(p),
             "VSGSMIBSystem": lambda: VSGSMIBSystem(p, DeviceModel=options["DeviceModel"], ClearingState=options["ClearingState"]),
             "VSGSMIBAVCSystem": lambda: VSGSMIBAVCSystem(p, ClearingState=options["ClearingState"]),
             "GFLLVRTSystem": lambda: GFLLVRTSystem(p),
@@ -42,7 +44,7 @@ class SystemFactory:
         options = {
             "RunTimeDomain": True, "RunSmallSignal": True, "RunInteractionAnalysis": False,
             "StartTime_s": 0.0, "EndTime_s": None, "OutputStep_s": None,
-            "MaxStep_s": None, "ResidualTolerance": None, "Breakpoints_s": None,
+            "SolverSettings": None, "ResidualTolerance": None, "Breakpoints_s": None,
             "DeviceModel": "VSGCC", "ClearingState": "theta", "EnableGFL": True,
             "EnableConverters": False, "FaultMode": None,
         }
@@ -105,6 +107,10 @@ class SystemFactory:
                 "fixedFaultVoltage_pu": 0.1, "validationTime_s": 1, "outputStep_s": 1e-4, "maximumStep_tau": 2e-3,
             },
         }
+        if name == "HybridGFMGFLsystem":
+            name = "HybridGFMGFLSystem"
+        if name == "HybridGFMGFLSystem":
+            defaults[name] = dict(defaults["CIGREMV14System"])
         p = defaults[name]
         if name == "IEEE13System" and options["EnableConverters"]:
             p.update({"Vbase": 4.16e3, "Sbase_Dev": 1e6, "GFMwref": 1, "GFMPref": 1, "GFMVref": 1.1,
@@ -124,34 +130,44 @@ class SystemFactory:
                          p["faultEnd_s"] + p["faultTransition_s"], p["validationTime_s"]]
             if not p.get("gridVoltage"):
                 p["gridVoltage"] = lambda t, times=eventTime, values=[1, 1, p["faultVoltage"], p["faultVoltage"], 1, 1]: cls.linearVoltage(t, times, values)
-            outputStep, maxStep, tolerance = 2e-3, 5e-3 / p["wBase"], 1e-4
+            outputStep, tolerance = 2e-3, 1e-4
         elif name in ("VSGSMIBSystem", "VSGSMIBAVCSystem"):
             if options["FaultMode"] is None: options["FaultMode"] = p["clearMode"]
             else: p["clearMode"] = options["FaultMode"]
             eventTime = [p["faultStart_s"], p["faultStart_s"] + p["voltageRamp_s"],
-                         p["faultStart_s"] + p["minimumFaultDuration_s"], p["clearTime_s"], p["clearTime_s"] + p["voltageRamp_s"]]
-            outputStep, maxStep, tolerance = 1e-4, 5e-3 / p["wBase"], 1e-4
+                         p["faultStart_s"] + p["minimumFaultDuration_s"]]
+            if p["clearMode"] == "time":
+                eventTime += [p["clearTime_s"], p["clearTime_s"] + p["voltageRamp_s"]]
+            outputStep, tolerance = 1e-4, 1e-4
         elif name in ("GFLLVRTSystem", "ParallelVSGSystem", "SGSMIBSystem"):
             eventTime = [0, p["faultStart_s"], p["faultComplete_s"], p["recoveryStart_s"], p["recoveryComplete_s"], p["validationTime_s"]]
             if not p.get("gridVoltage"):
                 p["gridVoltage"] = lambda t, times=eventTime, values=[1, 1, p["faultVoltage"], p["faultVoltage"], 1, 1]: cls.linearVoltage(t, times, values)
             outputStep = 5e-4 if name == "GFLLVRTSystem" else 2e-3
-            maxStep = (0.5e-4 if name == "GFLLVRTSystem" else 5e-3) / p["wBase"]
             tolerance = 1e-3 if name == "GFLLVRTSystem" else 1e-7 if name == "SGSMIBSystem" else 1e-4
         elif name == "IEEE13System":
             p["Zbase_ohm"] = p.get("Vbase", p["Vbase_LL_V"])**2 / p["Sbase_VA"]
             eventTime = [0, p["faultStartTime_s"], p["faultCompleteTime_s"], p["recoveryStartTime_s"], p["recoveryCompleteTime_s"], p["validationTime_s"]]
             if not p.get("infbusVoltage"):
                 p["infbusVoltage"] = lambda t, times=eventTime, values=[1, 1, p["faultVoltage"], p["faultVoltage"], 1, 1]: cls.linearVoltage(t, times, values)
-            outputStep, maxStep, tolerance = 1e-3 / p["wBase"], 1e-3 / p["wBase"], 1e-4
+            outputStep, tolerance = 1e-3 / p["wBase"], 1e-4
+        elif name in ("CIGREMV14System", "HybridGFMGFLSystem"):
+            p["clearMode"] = options["FaultMode"] or "time"
+            eventTime = (
+                [p["faultStartAngle_s"], p["angleClearEligible_s"]]
+                if p["clearMode"] == "angle" else
+                [p["fixedFaultStart_s"], p["fixedFaultComplete_s"],
+                 p["fixedClearStart_s"], p["fixedClearComplete_s"]]
+            )
+            outputStep = p["outputStep_s"]
+            tolerance = 1e-4
         else:
             if options["OutputStep_s"] is not None: p["outputStep_s"] = options["OutputStep_s"]
-            if options["MaxStep_s"] is not None: p["maximumStep_tau"] = options["MaxStep_s"] * p["wBase"]
-            eventTime, outputStep, maxStep, tolerance = [], p["outputStep_s"], p["maximumStep_tau"] / p["wBase"], 1e-4
+            eventTime, outputStep, tolerance = [], p["outputStep_s"], 1e-4
         options["FaultMode"] = options["FaultMode"] or "time"
         options["EndTime_s"] = p["validationTime_s"] if options["EndTime_s"] is None else options["EndTime_s"]
         options["OutputStep_s"] = outputStep if options["OutputStep_s"] is None else options["OutputStep_s"]
-        options["MaxStep_s"] = maxStep if options["MaxStep_s"] is None else options["MaxStep_s"]
+        options["SolverSettings"] = dict(options["SolverSettings"] or {})
         options["ResidualTolerance"] = tolerance if options["ResidualTolerance"] is None else options["ResidualTolerance"]
         options["Breakpoints_s"] = eventTime if options["Breakpoints_s"] is None else options["Breakpoints_s"]
         return p, options

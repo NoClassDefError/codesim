@@ -3,6 +3,11 @@
   "publisher": "hanchen-ge",
   "displayName": "Codesim System Viewer",
   "description": "Visualize CodeSim Python systems in a VS Code webview.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NoClassDefError/codesim.git",
+    "directory": "frontend"
+  },
   "icon": "media/Icon.png",
   "license": "Apache-2.0",
   "version": "0.1.3",
@@ -54,6 +59,18 @@
       {
         "command": "codesim-frontend.selectBackendDirectory",
         "title": "CodeSim: Select Backend Directory"
+      }
+    ],
+    "colors": [
+      {
+        "id": "codesim.backendRunningForeground",
+        "description": "Foreground color of the CodeSim status-bar indicator while the Python backend is running.",
+        "defaults": {
+          "dark": "#73C991",
+          "light": "#16825D",
+          "highContrast": "#89D185",
+          "highContrastLight": "#007F00"
+        }
       }
     ],
     "configuration": {

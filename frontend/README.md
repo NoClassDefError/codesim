@@ -49,6 +49,7 @@ The snapshot remains a persistent artifact; normal frontend/backend communicatio
 ## Interface behavior
 
 - **Topology View** shows backend power, system selection, Signals, refresh, automatic layout, and save-layout actions.
+- The VS Code status bar always shows whether the Python backend is stopped or running; its CodeSim indicator turns green while the backend process is active.
 - Choosing a system loads it immediately; there is no separate Load button.
 - **Signals View** contains Simulate, Small signal, and Interaction analysis actions.
 - Four plots are created by default: bus voltage magnitude, line current, device active/reactive power, and bus voltage angle.

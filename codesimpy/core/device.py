@@ -111,3 +111,25 @@ class Device(ABC):
     @abstractmethod
     def getFInit(self) -> Any:
         """Return symbolic steady-state initialization residuals."""
+
+    def getFInitStateIndices(self) -> list[int]:
+        """Return the local state index associated with each init residual."""
+        initialization = list(sp.Matrix(self.getFInit()))
+        available = list(enumerate(self.f))
+        indices: list[int] = []
+        for residual in initialization:
+            match = next(
+                (
+                    position for position, (_, equation) in enumerate(available)
+                    if equation == residual
+                ),
+                None,
+            )
+            if match is None:
+                raise ValueError(
+                    f"{type(self).__name__}.getFInit() must return equations "
+                    "from the device state derivative vector"
+                )
+            index, _ = available.pop(match)
+            indices.append(index)
+        return indices

@@ -22,10 +22,14 @@ class OutputJsonFactory:
         self.requestId: Any = None
         self.sequence = 0
         self.streaming = False
-        self.chunkSize = 200
+        # Keep live plots responsive even for simulations with only a few
+        # hundred output samples.  Larger chunks made short runs emit their
+        # first waveform update only when integration was nearly complete.
+        self.chunkSize = 50
         self.latestSimulation: dict[str, Any] = {}
         self.latestSmallSignal: dict[str, Any] = {}
         self.latestInteractionAnalysis: dict[str, Any] = {}
+        self.latestTransientVoltage: dict[str, Any] = {}
         self.outputDirectory = Path(outputDirectory) if outputDirectory else Path(__file__).resolve().parents[2] / "codegen"
         self.preserveExisting = True
 
@@ -186,9 +190,16 @@ class OutputJsonFactory:
                 "source": source,
             },
             "components": components, "connections": connections,
-            "signals": self.buildSignals(simulation, busIds),
+            "signals": (simulation["_snapshotSignals"] if "_snapshotSignals" in simulation
+                        else self.buildSignals(simulation, busIds)),
+            "simulationData": ({
+                "time_s": self.jsonSafe(simulation["time_s"]),
+                "referenceNames": simulation.get("referenceNames", self.system.referenceNames),
+                "referenceTrace": self.jsonSafe(simulation["referenceTrace"]),
+            } if "state" in simulation and "referenceTrace" in simulation else {}),
             "smallSignal": self.latestSmallSignal,
             "interactionAnalysis": self.latestInteractionAnalysis,
+            "transientVoltage": self.latestTransientVoltage,
         }
 
     def saveSnapshot(self, simulation: dict[str, Any] | None = None):
@@ -211,28 +222,146 @@ class OutputJsonFactory:
         os.replace(temporary, snapshotFile)
         return snapshotFile, descriptor
 
+    def loadSimulationFromSnapshot(self) -> dict[str, Any] | None:
+        """Restore state and reference trajectories from a matching snapshot."""
+        modelName = re.sub(r'[<>:"/\\|?*]', "-", self.system.name)
+        path = self.outputDirectory / f"{modelName}-snapshot.json"
+        if not path.exists():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data = data.get("frontendDescriptor", data)
+        if data.get("system", {}).get("name") != self.system.name:
+            return None
+        saved = {item["id"]: item["value"] for item in data["system"].get("parameters", [])}
+        current = {name: self.jsonSafe(self.system.parameters[name]) for name in self.system.parameterNames}
+        if saved != current:
+            raise ValueError("saved simulation does not match the current model parameters")
+        states = {item["label"]: item for item in data.get("signals", []) if item.get("category") == "state"}
+        if any(name not in states for name in self.system.stateNames):
+            return None
+        time = np.asarray(states[self.system.stateNames[0]]["time"], dtype=float)
+        if not time.size or not np.isfinite(time).all() or np.any(np.diff(time) <= 0):
+            raise ValueError("saved simulation has invalid sample times")
+        if any(not np.array_equal(time, states[name]["time"]) for name in self.system.stateNames):
+            raise ValueError("saved state signals have different sample times")
+        state = np.asarray([states[name]["values"] for name in self.system.stateNames], dtype=float).T
+        if state.shape != (time.size, len(self.system.stateNames)) or not np.isfinite(state).all():
+            raise ValueError("saved simulation has invalid state values")
+        metadata = data.get("simulationData", {})
+        if metadata:
+            if metadata.get("referenceNames") != self.system.referenceNames or not np.array_equal(time, metadata.get("time_s")):
+                raise ValueError("saved reference trace does not match the state signals")
+            references = np.asarray(metadata["referenceTrace"], dtype=float)
+        else:
+            if self.system.parameters.get("clearMode") == "angle":
+                raise ValueError("saved angle-clearing simulation lacks its reference trace")
+            references = np.asarray([self.system.getReference(float(t)) for t in time], dtype=float)
+        if references.shape != (time.size, len(self.system.referenceNames)) or not np.isfinite(references).all():
+            raise ValueError("saved simulation has an invalid reference trace")
+        self.latestSimulation = {
+            "time_s": time, "state": state, "stateNames": self.system.stateNames,
+            "referenceNames": self.system.referenceNames, "referenceTrace": references,
+            "_snapshotSignals": data["signals"],
+        }
+        return self.latestSimulation
+
     def mergeSnapshot(self, descriptor: dict[str, Any], existing: dict[str, Any]):
         """[snapshot] Preserve compatible results and layout from an existing file."""
         existing = existing.get("frontendDescriptor", existing)
         if existing.get("system", {}).get("id") != descriptor.get("system", {}).get("id"):
             return descriptor
-        if not descriptor.get("signals") and existing.get("signals"):
+        savedParameters = {row["id"]: row["value"] for row in existing["system"].get("parameters", [])}
+        currentParameters = {row["id"]: row["value"] for row in descriptor["system"].get("parameters", [])}
+        compatible = savedParameters == currentParameters
+        newSimulation = bool(descriptor.get("signals"))
+        if compatible and not newSimulation and existing.get("signals"):
             descriptor["signals"] = existing["signals"]
+        if compatible and not descriptor.get("simulationData") and existing.get("simulationData"):
+            descriptor["simulationData"] = existing["simulationData"]
         if not descriptor.get("layout") and existing.get("layout"):
             descriptor["layout"] = existing["layout"]
         smallSignal = descriptor.get("smallSignal", {})
         existingSmallSignal = existing.get("smallSignal", {})
-        if not (smallSignal.get("available") and smallSignal.get("modes")) and (
+        if compatible and not (smallSignal.get("available") and smallSignal.get("modes")) and (
             existingSmallSignal.get("available") and existingSmallSignal.get("modes")
         ):
             descriptor["smallSignal"] = existing["smallSignal"]
         interaction = descriptor.get("interactionAnalysis", {})
         existingInteraction = existing.get("interactionAnalysis", {})
-        if not (interaction.get("available") and interaction.get("matrices")) and (
+        if compatible and not (interaction.get("available") and interaction.get("matrices")) and (
             existingInteraction.get("available") and existingInteraction.get("matrices")
         ):
             descriptor["interactionAnalysis"] = existing["interactionAnalysis"]
+        transient = descriptor.get("transientVoltage", {})
+        existingTransient = existing.get("transientVoltage", {})
+        if (
+            compatible
+            and not transient.get("available")
+            and existingTransient.get("available")
+            and not newSimulation
+        ):
+            descriptor["transientVoltage"] = existingTransient
         return descriptor
+
+    def serializeTransientVoltage(self, decomposition: dict[str, Any]) -> dict[str, Any]:
+        """[snapshot] Serialize transient bus-voltage decomposition traces."""
+        qss = np.asarray(decomposition["qssVoltage"], dtype=complex)
+        correction = np.asarray(decomposition["firstOrderError"], dtype=complex)
+
+        def trace(value: Any) -> dict[str, Any]:
+            matrix = np.asarray(value, dtype=complex)
+            if matrix.ndim == 1:
+                matrix = matrix[:, None]
+            return {
+                "real": matrix.real.tolist(),
+                "imaginary": matrix.imag.tolist(),
+                "magnitude": np.abs(matrix).tolist(),
+            }
+
+        return {
+            "available": True,
+            "time_s": np.asarray(decomposition["time_s"], dtype=float).tolist(),
+            "sourceSampleCount": int(decomposition["sourceSampleCount"]),
+            "sampleIndices": np.asarray(
+                decomposition["sampleIndices"], dtype=int
+            ).tolist(),
+            "busNames": list(map(str, decomposition["busNames"])),
+            "requestedSlowStateNames": list(map(
+                str, decomposition.get(
+                    "requestedSlowStateNames", decomposition["slowStateNames"],
+                ),
+            )),
+            "slowStateNames": list(map(str, decomposition["slowStateNames"])),
+            "fastStateNames": list(map(str, decomposition["fastStateNames"])),
+            "angleStateName": str(decomposition["angleStateName"]),
+            "angleRate_rad_s": np.asarray(
+                decomposition["angleRate_rad_s"], dtype=float
+            ).tolist(),
+            "slowStateRates_per_s": np.asarray(
+                decomposition["slowStateRates_per_s"], dtype=float
+            ).tolist(),
+            "qssConverged": np.asarray(
+                decomposition["qssConverged"], dtype=bool
+            ).tolist(),
+            "qssResidualNorm": np.asarray(
+                decomposition["qssResidualNorm"], dtype=float
+            ).tolist(),
+            "fastJacobianCondition": np.asarray(
+                decomposition["fastJacobianCondition"], dtype=float
+            ).tolist(),
+            "firstOrderAvailable": np.asarray(
+                decomposition["firstOrderAvailable"], dtype=bool
+            ).tolist(),
+            "components": {
+                "actual": trace(decomposition["actualVoltage"]),
+                "qss": trace(qss),
+                "firstOrderError": trace(correction),
+                "firstOrder": trace(correction),
+                "emt": trace(decomposition["emtVoltage"]),
+                "reconstructed": trace(decomposition["reconstructedVoltage"]),
+                "reconstructionError": trace(decomposition["reconstructionError"]),
+            },
+        }
 
     def serializeSmallSignal(self, analysis: dict[str, Any]) -> dict[str, Any]:
         """[snapshot] Serialize small-signal modes and symbolic expressions."""

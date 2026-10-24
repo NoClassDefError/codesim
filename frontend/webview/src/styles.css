@@ -1165,15 +1165,393 @@ body[data-view="viewer"] .toolbar-actions .toolbar-icon-button {
 }
 .interaction-empty p { color: var(--vscode-descriptionForeground, #aaa); }
 
+.transient-panel {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  background: var(--vscode-editor-background, #1e1e1e);
+}
+.transient-controls {
+  min-height: 0;
+  padding: 18px 14px;
+  overflow: auto;
+  border-right: 1px solid var(--vscode-panel-border, #3c3c3c);
+  background: var(--vscode-sideBar-background, #252526);
+}
+.transient-control-heading { margin-bottom: 22px; }
+.transient-kicker {
+  color: var(--vscode-charts-blue, #4fc1ff);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.transient-control-heading h2,
+.transient-topline h2,
+.transient-empty h2 {
+  margin: 5px 0 7px;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 21px;
+  line-height: 1.1;
+}
+.transient-control-heading p,
+.transient-explanation,
+.transient-empty p {
+  margin: 0;
+  color: var(--vscode-descriptionForeground, #aaa);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.transient-controls > label {
+  display: block;
+  margin: 0 0 6px;
+  color: var(--vscode-foreground, #ddd);
+  font-size: 11px;
+  font-weight: 700;
+}
+.transient-controls > select,
+.transient-controls > input[type="number"] {
+  width: 100%;
+  height: 31px;
+  padding: 4px 7px;
+  border: 1px solid var(--vscode-dropdown-border, #555);
+  border-radius: 3px;
+  color: var(--vscode-dropdown-foreground, #eee);
+  background: var(--vscode-dropdown-background, #3c3c3c);
+}
+.transient-state-picker {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.transient-state-picker legend {
+  margin: 0 0 6px;
+  padding: 0;
+  color: var(--vscode-foreground, #ddd);
+  font-size: 11px;
+  font-weight: 700;
+}
+.transient-state-picker > div {
+  max-height: 164px;
+  padding: 4px;
+  overflow: auto;
+  border: 1px solid var(--vscode-dropdown-border, #555);
+  border-radius: 3px;
+  background: var(--vscode-dropdown-background, #3c3c3c);
+}
+.transient-state-picker label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 4px;
+  color: var(--vscode-dropdown-foreground, #eee);
+  font-size: 11px;
+  cursor: pointer;
+}
+.transient-state-picker label:hover {
+  background: var(--vscode-list-hoverBackground, #2a2d2e);
+}
+.transient-state-picker input { margin: 0; }
+.transient-state-picker label span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transient-state-picker:disabled { opacity: .6; }
+.transient-state-picker:disabled label { cursor: default; }
+.transient-controls > .transient-field-note + label { margin-top: 13px; }
+.transient-field-note {
+  display: block;
+  margin-top: 6px;
+  color: var(--vscode-descriptionForeground, #888);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.transient-run-button {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 13px 0 0;
+  border: 1px solid var(--vscode-button-border, transparent);
+  border-radius: 3px;
+  color: var(--vscode-button-foreground, #fff);
+  background: var(--vscode-button-background, #0e639c);
+  cursor: pointer;
+}
+.transient-run-button:hover:not(:disabled) { background: var(--vscode-button-hoverBackground, #1177bb); }
+.transient-run-button:disabled { cursor: default; opacity: .5; }
+.transient-run-button svg { width: 14px; height: 14px; fill: currentColor; }
+.transient-divider {
+  height: 1px;
+  margin: 19px 0 16px;
+  background: var(--vscode-panel-border, #3c3c3c);
+}
+.transient-diagnostics {
+  display: grid;
+  gap: 1px;
+  margin-top: 15px;
+  border: 1px solid var(--vscode-panel-border, #3c3c3c);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--vscode-panel-border, #3c3c3c);
+}
+.transient-diagnostics div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 9px;
+  background: var(--vscode-editor-background, #1e1e1e);
+  font-size: 11px;
+}
+.transient-diagnostics span { color: var(--vscode-descriptionForeground, #999); }
+.transient-diagnostics strong { font-family: var(--vscode-editor-font-family, monospace); font-size: 10px; }
+.transient-diagnostics .ok { color: var(--vscode-testing-iconPassed, #73c991); }
+.transient-diagnostics .warning { color: var(--vscode-charts-yellow, #ffb454); }
+.transient-explanation {
+  margin-top: 14px;
+  padding-left: 9px;
+  border-left: 2px solid var(--vscode-charts-blue, #4fc1ff);
+}
+.transient-empty {
+  display: grid;
+  max-width: 560px;
+  place-content: center;
+  justify-items: center;
+  justify-self: center;
+  padding: 36px;
+  text-align: center;
+}
+.transient-empty-icon {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  margin-bottom: 8px;
+  border: 1px solid color-mix(in srgb, var(--vscode-charts-blue, #4fc1ff) 45%, transparent);
+  border-radius: 50%;
+  color: var(--vscode-charts-blue, #4fc1ff);
+  background: color-mix(in srgb, var(--vscode-charts-blue, #4fc1ff) 9%, transparent);
+}
+.transient-empty-icon svg { width: 38px; fill: none; stroke: currentColor; stroke-width: 2; }
+.transient-empty p { max-width: 470px; }
+.transient-method-preview { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 21px; }
+.transient-method-preview span { color: var(--vscode-descriptionForeground, #aaa); font-size: 11px; }
+.transient-method-preview i { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; }
+.transient-method-preview .qss { background: #4fc1ff; }
+.transient-method-preview .first { background: #c586e0; }
+.transient-method-preview .emt { background: #ffb454; }
+.transient-content {
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  overflow: auto;
+}
+.transient-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 2px 10px;
+}
+.transient-topline h2 { margin-bottom: 0; }
+.transient-metric-switch {
+  display: flex;
+  padding: 2px;
+  border: 1px solid var(--vscode-panel-border, #454545);
+  border-radius: 5px;
+  background: var(--vscode-editorWidget-background, #252526);
+}
+.transient-metric-switch button {
+  min-width: 54px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 3px;
+  color: var(--vscode-descriptionForeground, #aaa);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+}
+.transient-metric-switch button.active {
+  color: var(--vscode-button-foreground, #fff);
+  background: var(--vscode-button-background, #0e639c);
+}
+.transient-chart-card {
+  min-width: 0;
+  border: 1px solid var(--vscode-panel-border, #3c3c3c);
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--vscode-editor-background, #1e1e1e);
+}
+.transient-state-subplot {
+  border-top: 1px solid var(--vscode-panel-border, #3c3c3c);
+}
+.transient-subplot-heading {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px 5px;
+}
+.transient-subplot-heading h3 {
+  margin: 3px 0 0;
+  font-family: "Times New Roman", Times, serif;
+  font-size: 16px;
+}
+.transient-state-legend {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px 12px;
+}
+.transient-state-legend span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+}
+.transient-state-legend i {
+  width: 13px;
+  height: 3px;
+  flex: 0 0 13px;
+  border-radius: 2px;
+}
+.transient-state-legend b {
+  max-width: 170px;
+  overflow: hidden;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transient-state-legend em {
+  color: var(--vscode-descriptionForeground, #999);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-style: normal;
+}
+.transient-state-empty {
+  display: grid;
+  min-height: 150px;
+  place-items: center;
+  padding: 18px;
+  color: var(--vscode-descriptionForeground, #999);
+  font-size: 11px;
+}
+.transient-chart-scroll { overflow: auto; }
+.transient-chart {
+  display: block;
+  width: 100%;
+  min-width: 650px;
+  touch-action: none;
+  cursor: crosshair;
+}
+.transient-chart-tick,
+.transient-chart-label {
+  fill: var(--vscode-descriptionForeground, #aaa);
+  font-family: "Times New Roman", Times, serif;
+  font-size: 12px;
+}
+.transient-chart-label { fill: var(--vscode-foreground, #ddd); font-size: 14px; font-weight: 600; }
+.transient-trace {
+  fill: none;
+  stroke-width: 1.8;
+  vector-effect: non-scaling-stroke;
+}
+.transient-trace-actual { stroke-width: 2.2; }
+.transient-state-trace { stroke-width: 2; }
+.transient-cursor line {
+  stroke: var(--vscode-foreground, #eee);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+  opacity: .72;
+  vector-effect: non-scaling-stroke;
+}
+.transient-cursor circle { stroke: var(--vscode-editor-background, #1e1e1e); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.transient-time-scrubber {
+  display: grid;
+  grid-template-columns: 65px minmax(100px, 1fr) 88px;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-top: 1px solid var(--vscode-panel-border, #333);
+  color: var(--vscode-descriptionForeground, #999);
+  font-size: 10px;
+}
+.transient-time-scrubber input { width: 100%; accent-color: var(--vscode-focusBorder, #007fd4); }
+.transient-time-scrubber output { color: var(--vscode-foreground, #ddd); font-family: var(--vscode-editor-font-family, monospace); text-align: right; }
+.transient-component-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.transient-component-card {
+  display: grid;
+  min-width: 0;
+  min-height: 118px;
+  align-content: start;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--vscode-panel-border, #3c3c3c);
+  border-radius: 5px;
+  color: var(--vscode-foreground, #ddd);
+  background: var(--vscode-editor-background, #1e1e1e);
+  text-align: left;
+  cursor: pointer;
+  opacity: .55;
+}
+.transient-component-card.active { opacity: 1; }
+.transient-component-card:hover { border-color: var(--vscode-focusBorder, #007fd4); }
+.transient-component-title { display: flex; min-width: 0; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; }
+.transient-component-title i { width: 15px; height: 3px; flex: 0 0 15px; border-radius: 2px; }
+.transient-component-title em { margin-left: auto; color: var(--vscode-descriptionForeground, #888); font-size: 9px; font-style: normal; font-weight: 400; }
+.transient-component-card > strong { font-family: var(--vscode-editor-font-family, monospace); font-size: 20px; font-weight: 500; }
+.transient-component-card > strong small { color: var(--vscode-descriptionForeground, #999); font-family: var(--vscode-font-family, sans-serif); font-size: 10px; font-weight: 400; }
+.transient-component-card > span:not(.transient-component-title) { color: var(--vscode-descriptionForeground, #999); font-size: 10px; }
+.transient-component-card .transient-correction { color: var(--vscode-charts-purple, #c586e0); font-family: var(--vscode-editor-font-family, monospace); }
+.transient-sample-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  margin-top: 8px;
+  border: 1px solid var(--vscode-panel-border, #3c3c3c);
+  border-radius: 5px;
+  overflow: hidden;
+  background: var(--vscode-panel-border, #3c3c3c);
+}
+.transient-sample-details > span {
+  display: grid;
+  min-width: 130px;
+  flex: 1 1 145px;
+  gap: 3px;
+  padding: 8px 10px;
+  background: var(--vscode-editorWidget-background, #252526);
+}
+.transient-sample-details small { color: var(--vscode-descriptionForeground, #999); font-size: 9px; letter-spacing: .05em; text-transform: uppercase; }
+.transient-sample-details strong { font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; }
+.transient-sample-details .sample-ok strong { color: var(--vscode-testing-iconPassed, #73c991); }
+.transient-sample-details .sample-warning strong { color: var(--vscode-charts-yellow, #ffb454); }
+
 @media (max-width: 1250px) {
   .viewer-workspace { grid-template-columns: 210px minmax(0, 1fr); }
   .signals-workspace { grid-template-columns: minmax(0, 1fr) 230px; }
   .small-signal-content { grid-template-columns: minmax(620px, 1fr); }
   .interaction-content { grid-template-columns: minmax(620px, 1fr); }
+  .transient-component-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
 }
 
 @media (max-width: 850px) {
   .viewer-workspace { grid-template-columns: minmax(0, 1fr); }
   .tree-panel { display: none; }
   .signals-workspace { grid-template-columns: minmax(0, 1fr) 210px; }
+  .transient-panel { grid-template-columns: 220px minmax(0, 1fr); }
 }
