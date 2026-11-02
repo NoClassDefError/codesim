@@ -255,7 +255,7 @@ class System(ABC):
             "parameters": self.parameters,
             "simulationTime_s": perf_counter() - started,
         }
-        if "clearTime_s" in self.parameters:
+        if self.eventName == "faultClearing":
             result["clearingTime_s"] = self.eventTime_s
         if saveSnapshot:
             _, result["frontendDescriptor"] = self.outputJsonFactory.saveSnapshot(result)
@@ -365,10 +365,9 @@ class System(ABC):
             emitChunk(chunkStart, time_s.size)
         return state, time_s, events
 
-    @abstractmethod
     def eventHandler(self, time_s: float, state: np.ndarray) -> float:
-        """Return the model-specific zero-crossing value."""
-        raise NotImplementedError
+        """Return a nonzero value for systems without state-triggered events."""
+        return 1.0
 
     def calculateNetworkSignals(self, time_s: Any, state: Any, references: Any) -> dict[str, Any]:
         state, time_s = np.asarray(state), np.asarray(time_s)

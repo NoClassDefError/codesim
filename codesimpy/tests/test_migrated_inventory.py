@@ -7,6 +7,41 @@ from codesimpy.api import SystemFactory
 
 
 class MigratedInventoryTests(unittest.TestCase):
+    def test_each_system_class_owns_fresh_defaults(self):
+        for name, systemClass in SystemFactory.systemClasses.items():
+            with self.subTest(system=name):
+                self.assertIn("defaultParameters", systemClass.__dict__)
+                first, second = systemClass.defaultParameters(), systemClass.defaultParameters()
+                self.assertIsInstance(first, dict)
+                self.assertIsNot(first, second)
+                self.assertIn("validationTime_s", first)
+
+    def test_time_domain_fault_parameters_use_one_schema(self):
+        canonical = {
+            "faultStart_s", "faultComplete_s", "recoveryStart_s",
+            "recoveryComplete_s", "faultVoltage",
+        }
+        systems = [
+            "HybridSystem", "HybridGFMGFLSystem", "VSGSMIBSystem",
+            "VSGSMIBAVCSystem", "GFLLVRTSystem", "ParallelVSGSystem",
+            "SGSMIBSystem", "IEEE13System", "CIGREMV14System",
+        ]
+        for name in systems:
+            with self.subTest(system=name):
+                parameters, _ = SystemFactory.defaultParameters(name, {}, {})
+                self.assertTrue(canonical <= parameters.keys())
+
+    def test_legacy_fault_parameters_are_normalized(self):
+        parameters, _ = SystemFactory.defaultParameters("VSGSMIBSystem", {
+            "clearTime_s": 0.7, "faultVoltage_pu": 0.2,
+            "voltageRamp_s": 0.002,
+        }, {})
+        self.assertEqual(parameters["recoveryStart_s"], 0.7)
+        self.assertEqual(parameters["recoveryComplete_s"], 0.702)
+        self.assertEqual(parameters["faultVoltage"], 0.2)
+        self.assertNotIn("clearTime_s", parameters)
+        self.assertNotIn("faultVoltage_pu", parameters)
+
     def test_cigre_converter_defaults_match_simulink_reference(self):
         parameters, _ = SystemFactory.defaultParameters("CIGREMV14System", {}, {})
         expected = {
@@ -20,6 +55,14 @@ class MigratedInventoryTests(unittest.TestCase):
         for name, value in expected.items():
             with self.subTest(parameter=name):
                 self.assertEqual(parameters[name], value)
+
+    def test_gfl_lvrt_filter_damping_is_parameterized(self):
+        parameters, _ = SystemFactory.defaultParameters("GFLLVRTSystem", {}, {})
+        self.assertEqual(parameters["filterCapacitance_pu"], 0.068)
+        self.assertEqual(parameters["filterDampingConductance_pu"], 0.8)
+        system, _, _ = SystemFactory.create("GFLLVRTSystem")
+        self.assertEqual(system.devices["capacitor"].p["C"]["num"], 0.068)
+        self.assertEqual(system.devices["capacitor"].p["Gd"]["num"], 0.8)
 
     def test_all_systems_are_exposed(self):
         self.assertEqual(SystemFactory.systemNames, [

@@ -131,7 +131,7 @@ codesim/
 2. Define its devices, network, base values, references, parameters, and parameter names.
 3. Implement `calculateSignals(time_s, state, networkSignals)`.
 4. Export it from `codesimpy/systems/__init__.py`.
-5. Register the class, default parameters, and options in `codesimpy/api/system_factory.py`.
+5. Add `defaultParameters()` to the system class, then register the class and its run options in `codesimpy/api/system_factory.py`.
 6. Add a focused test under `codesimpy/tests/`.
 
 ### Add a component

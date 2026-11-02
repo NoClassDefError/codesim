@@ -94,6 +94,19 @@ class CoreTests(unittest.TestCase):
         np.testing.assert_allclose(current, 0)
         self.assertEqual(grid.getStateMatrix(state, reference).shape, (6, 6))
 
+    def test_numba_derivative_matches_numpy(self):
+        try:
+            import numba  # noqa: F401
+        except ImportError:
+            self.skipTest("Numba is not installed")
+        system = self.makeSystem()
+        grid = system.rlGrid
+        state = np.array([0.1, -0.2, 0.9, 0.1, 1.1, -0.1])
+        reference = system.getReference(0)
+        expected = grid.f_numeric(state, reference)
+        self.assertTrue(grid.enableNumba())
+        np.testing.assert_allclose(grid.f_numeric(state, reference), expected)
+
     def test_integration_and_json_snapshot(self):
         system = self.makeSystem()
         state = np.array([0, 0, 1, 0, 1, 0], dtype=float)

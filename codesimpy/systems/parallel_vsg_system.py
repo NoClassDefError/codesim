@@ -7,6 +7,17 @@ from ..core import System
 
 
 class ParallelVSGSystem(System):
+    @staticmethod
+    def defaultParameters():
+        return {
+            "Vbase": 1, "Sbase": 8100, "frequency_Hz": 50,
+            "Pref": [0.3, 0.3], "Vref": [1.1, 1.1], "wref": [1, 1],
+            "branchL": [0.3, 0.3], "branchR": [0.1, 0.1],
+            "validationTime_s": 0.4, "faultStart_s": 0.10,
+            "faultComplete_s": 0.101, "recoveryStart_s": 0.20,
+            "recoveryComplete_s": 0.201, "faultVoltage": 0.9,
+        }
+
     def __init__(self, p):
         vsg1 = VSGCL(p["Vbase"], p["Sbase"], "parallel_vsg1")
         vsg2 = VSGCL(p["Vbase"], p["Sbase"], "parallel_vsg2")

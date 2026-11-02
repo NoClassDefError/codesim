@@ -10,6 +10,16 @@ from ..core import System
 
 
 class SGSMIBSystem(System):
+    @staticmethod
+    def defaultParameters():
+        return {
+            "Vbase": 1, "Sbase": 8100, "frequency_Hz": 50, "SCR": 2,
+            "rho": 0.25, "Ka": 0.5, "Vf0": 1.0, "Vdref": 1.2812,
+            "validationTime_s": 0.4, "faultStart_s": 0.10,
+            "faultComplete_s": 0.101, "recoveryStart_s": 0.20,
+            "recoveryComplete_s": 0.201, "faultVoltage": 0.2,
+        }
+
     def __init__(self, p):
         sg = SG(p["Vbase"], p["Sbase"], "1")
         sg.p["Ka"]["num"], sg.p["Vf0"]["num"] = p["Ka"], p["Vf0"]

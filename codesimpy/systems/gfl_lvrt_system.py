@@ -7,12 +7,25 @@ from ..core import System
 
 
 class GFLLVRTSystem(System):
+    @staticmethod
+    def defaultParameters():
+        return {
+            "SCR": 5, "rho": 0.25, "Pref": 1, "Qref": 0.1,
+            "filterCapacitance_pu": 0.068,
+            "filterDampingConductance_pu": 0.8,
+            "frequency_Hz": 50, "validationTime_s": 1,
+            "faultStart_s": 0.3, "faultComplete_s": 0.301,
+            "recoveryStart_s": 0.6, "recoveryComplete_s": 0.601,
+            "faultVoltage": 0.5,
+        }
+
     def __init__(self, p):
         gfl = GFLVSC(1, 8100, "1")
         for name, value in (("Vctrl", 0), ("KpPll", 0.2), ("KiPll", 0.2), ("Vref", 1), ("Kq", 1)):
             gfl.p[name]["num"] = value
         capacitor = Capacitor(1, 8100, "2")
-        capacitor.p["Gd"]["num"], capacitor.p["C"]["num"] = 0.2, 5e-4
+        capacitor.p["Gd"]["num"] = p["filterDampingConductance_pu"]
+        capacitor.p["C"]["num"] = p["filterCapacitance_pu"]
         zero, source = ZeroCurrent(1, 8100, "3"), Infbus(1, 8100, "4")
         refs = {str(gfl.uref[0]): p["Pref"], str(gfl.uref[1]): p["Qref"], str(source.uref[0]): p["gridVoltage"]}
         devices = {"Vdev": [capacitor, source], "Idev": [gfl, zero], "gfl": gfl, "capacitor": capacitor, "source": source}
@@ -22,7 +35,12 @@ class GFLLVRTSystem(System):
             "GFLLVRTSystem", network, devices,
             {"Vbase": 1, "Sbase": 8100, "frequency_Hz": 50}, refs,
         )
-        self.solverSettings["max_step"] = 0.5e-4 / (2 * np.pi * p["frequency_Hz"])
+        self.solverSettings = {
+            "method": "DOP853",
+            "max_step": 5e-3 / (2 * np.pi * self.base["frequency_Hz"]),
+            "rtol": 1e-3,
+            "atol": 1e-5,
+        }
         self.parameters, self.parameterNames = p, list(p)
 
     def calculateSignals(self, time_s, state, net):

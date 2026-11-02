@@ -75,8 +75,9 @@ class VSGSMIBTests(unittest.TestCase):
     def test_angle_fault_uses_scipy_event(self):
         parameters = {
             "clearMode": "angle", "faultStart_s": 0.001,
-            "minimumFaultDuration_s": 0.002, "clearAngle_rad": 0.02,
-            "faultVoltage_pu": 0.0, "voltageRamp_s": 1e-4,
+            "faultComplete_s": 0.0011, "minimumFaultDuration_s": 0.002,
+            "clearAngle_rad": 0.02, "faultVoltage": 0.0,
+            "recoveryStart_s": 0.01, "recoveryComplete_s": 0.0101,
             "validationTime_s": 0.02,
         }
         system, _, options = SystemFactory.create(

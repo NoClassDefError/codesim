@@ -10,6 +10,18 @@ from ..core import System
 
 
 class VSGSMIBSystem(System):
+    @staticmethod
+    def defaultParameters():
+        return {
+            "Vbase": 1, "Sbase": 8100, "frequency_Hz": 50, "SCR": 2,
+            "rho": 0.1, "Pref": 1, "Vref": 1.1, "wref": 1,
+            "clearMode": "time", "clearAngle_rad": -np.pi / 3,
+            "faultStart_s": 0.2, "faultComplete_s": 0.201,
+            "minimumFaultDuration_s": 0.5, "recoveryStart_s": 1,
+            "recoveryComplete_s": 1.001, "faultVoltage": 0.5,
+            "validationTime_s": 2,
+        }
+
     def __init__(
         self, p: dict[str, Any], *, DeviceModel: str = "VSGCC",
         ClearingState: str = "delta",
@@ -43,14 +55,19 @@ class VSGSMIBSystem(System):
             "frequency_Hz": p["frequency_Hz"],
         }
         super().__init__(f"VSGSMIBSystem_{DeviceModel}", network, devices, base, refs)
-        self.solverSettings["max_step"] = 5e-3 / (2 * np.pi * p["frequency_Hz"])
+        self.solverSettings = {
+            "method": "RK45",
+            "max_step": 5e-3 / (2 * np.pi * self.base["frequency_Hz"]),
+            "rtol": 1e-3,
+            "atol": 1e-5,
+        }
         self.parameters = p
         self.parameterNames = list(p)
         self.clearingState = ClearingState
         self.eventName = "faultClearing"
-        self.eventTime_s = p["clearTime_s"]
+        self.eventTime_s = p["recoveryStart_s"]
         if p["clearMode"] == "angle":
-            p["clearTime_s"] = np.inf
+            self.eventTime_s = np.inf
             self.eventStartTime_s = (
                 p["faultStart_s"] + p["minimumFaultDuration_s"]
             )
@@ -59,9 +76,11 @@ class VSGSMIBSystem(System):
         )
 
     def voltageReference(self, t: float, p: dict[str, Any]) -> float:
-        fall = min(1.0, max(0.0, (t - p["faultStart_s"]) / p["voltageRamp_s"]))
-        rise = min(1.0, max(0.0, (t - self.eventTime_s) / p["voltageRamp_s"]))
-        return 1 - (1 - p["faultVoltage_pu"]) * fall + (1 - p["faultVoltage_pu"]) * rise
+        fallDuration = max(p["faultComplete_s"] - p["faultStart_s"], np.finfo(float).eps)
+        riseDuration = max(p["recoveryComplete_s"] - p["recoveryStart_s"], np.finfo(float).eps)
+        fall = min(1.0, max(0.0, (t - p["faultStart_s"]) / fallDuration))
+        rise = min(1.0, max(0.0, (t - self.eventTime_s) / riseDuration))
+        return 1 - (1 - p["faultVoltage"]) * fall + (1 - p["faultVoltage"]) * rise
 
     def eventHandler(self, _time_s: float, state: np.ndarray) -> float:
         p = self.parameters

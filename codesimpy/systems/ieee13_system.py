@@ -7,6 +7,27 @@ from ..core import System
 
 
 class IEEE13System(System):
+    @staticmethod
+    def defaultParameters():
+        return {
+            "Sbase_VA": 5e6, "Vbase_LL_V": 4.16e3, "frequency_Hz": 50,
+            "validationTime_s": 0.5, "faultStart_s": 0.10,
+            "faultComplete_s": 0.101, "recoveryStart_s": 0.20,
+            "recoveryComplete_s": 0.201, "faultVoltage": 0.8,
+        }
+
+    @staticmethod
+    def converterDefaultParameters():
+        return {
+            "Vbase": 4.16e3, "Sbase_Dev": 1e6, "GFMwref": 1,
+            "GFMPref": 1, "GFMVref": 1.1, "gflBusNames": ["645", "671"],
+            "gflPref": [0.5, 0.5], "gflQref": [0, 0], "gflKpPll": 0.2,
+            "gflKiPll": 0.2, "gfl671Vth": 0.92, "gfl671K1": 1.0,
+            "bus671ActiveZFraction": 0.65, "bus671LineRScale": 0.5,
+            "bus645Gd": 0.1, "switchResistance_pu": 5e-5,
+            "validationTime_s": 0.3, "faultVoltage": 0.5,
+        }
+
     def __init__(self, p, *, EnableConverters=False):
         busTable, branchTable, loadTable, data = self.networkData()
         incidence, branchLpu, branchRpu = self.branches(busTable, branchTable, data, p)

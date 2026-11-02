@@ -15,6 +15,10 @@ class HybridGFMGFLSystem(System):
     laterals outside this four-node corridor are intentionally omitted.
     """
 
+    @staticmethod
+    def defaultParameters():
+        return CIGREMV14System.defaultParameters()
+
     def __init__(self, p):
         incidence, branchR, branchL, busNames, busCapacitance = self.buildReducedNetwork()
         _, gflNode, middleNode, vsgNode = range(4)
@@ -55,9 +59,7 @@ class HybridGFMGFLSystem(System):
             ZeroCurrent(1, p["Sbase_VA"], "hybrid_cigre_bus8_zero"),
             ZeroCurrent(1, p["Sbase_VA"], "hybrid_cigre_bus9_zero"),
         ]
-        p["clearTime_s"] = (
-            np.inf if p["clearMode"] == "angle" else p["fixedClearStart_s"]
-        )
+        clearingTime_s = np.inf if p["clearMode"] == "angle" else p["recoveryStart_s"]
         references = {
             str(source.uref[0]): lambda t: self.sourceVoltage(t, p),
             str(gfl.uref[0]): p["GFLPref"],
@@ -93,7 +95,7 @@ class HybridGFMGFLSystem(System):
         ]
         self.eventName = "faultClearing"
         self.eventDirection = 1
-        self.eventTime_s = p["clearTime_s"]
+        self.eventTime_s = clearingTime_s
         if p["clearMode"] == "angle":
             self.eventStartTime_s = p["angleClearEligible_s"]
         self.eventStateIndex = self.stateNames.index(f"delta{vsg.index}")

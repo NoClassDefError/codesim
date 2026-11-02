@@ -7,6 +7,22 @@ from ..core import System
 
 
 class HybridSystem(System):
+    @staticmethod
+    def defaultParameters():
+        return {
+            "Vbase": 1, "Sbase": 25e6, "vsgSbase": 5e6, "gflSbase": 1.5e6,
+            "frequency_Hz": 50, "gflPref": 1, "gflQref": 0, "gflVref": 1,
+            "vsgPref": 1, "vsgVref": 1.10, "vsgImax": 1.5, "wref": 1,
+            "vsgRv": 0.1, "vsgLv": 0.3, "vsgLf": 0.07, "vsgKpApc": 0.05,
+            "vsgKpCc": 20, "vsgKiCc": 5, "gflLf": 0.07, "gflKpCc": 0.3,
+            "gflKiCc": 1, "gflKpPll": 0.2, "gflKiPll": 0.02,
+            "gflKpP": 0.02, "gflKiP": 0.02, "gflKpQ": 0.02,
+            "gflKiQ": 0.02, "gflKq": 0.05, "validationTime_s": 1,
+            "faultStart_s": 0.10, "faultComplete_s": 0.101,
+            "recoveryStart_s": 0.5, "recoveryComplete_s": 0.501,
+            "faultVoltage": 0.25, "SCR": 1.69, "rho": 1.0,
+        }
+
     def __init__(self, p, *, EnableGFL=True):
         source = Infbus(p["Vbase"], p["Sbase"], "hybrid_grid")
         vsg = VSGCC(p["Vbase"], p["vsgSbase"], "hybrid_vsg")

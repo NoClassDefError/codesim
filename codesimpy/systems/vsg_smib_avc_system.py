@@ -8,6 +8,10 @@ from .vsg_smib_system import VSGSMIBSystem
 class VSGSMIBAVCSystem(VSGSMIBSystem):
     """SMIB fault-study system using :class:`VSGCCAVC`."""
 
+    @staticmethod
+    def defaultParameters():
+        return VSGSMIBSystem.defaultParameters()
+
     def __init__(self, p: dict[str, Any], *, ClearingState: str = "delta") -> None:
         super().__init__(p, DeviceModel="VSGCCAVC", ClearingState=ClearingState)
         self.name = "VSGSMIBAVCSystem"

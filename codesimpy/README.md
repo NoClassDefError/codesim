@@ -61,6 +61,16 @@ analysis = system.smallSignal.analyze(operatingPoint)
 
 `SystemFactory.systemNames` is the authoritative list of systems exposed to clients. `network`, `devices`, `base`, parameters, and options are ordinary dictionaries.
 
+Each system class owns its raw parameter defaults through `defaultParameters()`. The factory adds shared derived values, normalizes legacy fault names, and prepares simulation options.
+
+All time-domain models use the same fault parameters:
+
+- `faultStart_s` and `faultComplete_s`: start and end of fault application;
+- `recoveryStart_s` and `recoveryComplete_s`: start and end of voltage recovery;
+- `faultVoltage`: retained grid-voltage magnitude in per unit.
+
+`SystemFactory` accepts the former model-specific names for compatibility and normalizes them to this schema.
+
 ## Resident stdio service
 
 Start the service from the repository root:

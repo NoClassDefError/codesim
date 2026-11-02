@@ -164,7 +164,32 @@ class RLGrid:
             values = np.r_[stateValues, referenceValues, self.parameterMap["parameterValues"]]
             result = np.asarray(function(*values), dtype=float)
             return result if matrix else result.reshape(-1)
+        numeric.generatedFunction = function
         return numeric
+
+    def enableNumba(self, *, FastMath: bool = False) -> bool:
+        """JIT-compile the time-domain derivative when Numba is available."""
+        if hasattr(self, "_numbaDerivative"):
+            return True
+        try:
+            from numba import njit
+        except ImportError:
+            return False
+
+        compiled = njit(self.f_core.generatedFunction, fastmath=FastMath)
+
+        def f_numeric(state: Any, *reference: Any):
+            stateValues = np.asarray(state, dtype=float).reshape(-1)
+            if len(reference) == 1 and np.asarray(reference[0]).size == len(self.u):
+                referenceValues = np.asarray(reference[0], dtype=float).reshape(-1)
+            else:
+                referenceValues = np.asarray(reference, dtype=float).reshape(-1)
+            values = np.r_[stateValues, referenceValues, self.parameterMap["parameterValues"]]
+            return np.asarray(compiled(*values), dtype=float).reshape(-1)
+
+        self.f_numeric = f_numeric
+        self._numbaDerivative = compiled
+        return True
 
     def refreshParameters(self, rebuild: bool = False) -> None:
         symbols: list[Any] = list(self.Lsym) + list(self.Rsym)

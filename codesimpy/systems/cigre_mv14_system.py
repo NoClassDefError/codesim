@@ -7,6 +7,23 @@ from ..core import System
 
 
 class CIGREMV14System(System):
+    @staticmethod
+    def defaultParameters():
+        return {
+            "Sbase_VA": 25e6, "VbaseLL_V": 20e3, "frequency_Hz": 50,
+            "VSGSbase_VA": 5e6, "GFLSbase_VA": 1.5e6, "GFLPref": 1,
+            "GFLQref": 0, "GFLLf": 0.07, "GFLKpCc": 0.3, "GFLKiCc": 1,
+            "GFLKpPll": 0.2, "GFLKiPll": 0.02, "GFLKpP": 0.02,
+            "GFLKiP": 0.02, "GFLKpQ": 0.02, "GFLKiQ": 0.02,
+            "VSGPref": 1, "VSGVref": 1.1, "VSGwref": 1,
+            "angleClearEligible_s": 0.25, "angleClearLower_rad": -np.pi / 3,
+            "angleClearUpper_rad": 0, "faultStart_s": 0.10,
+            "faultComplete_s": 0.101, "recoveryStart_s": 0.25,
+            "recoveryComplete_s": 0.2501, "faultVoltage": 0.1,
+            "validationTime_s": 1, "outputStep_s": 1e-4,
+            "maximumStep_tau": 2e-3,
+        }
+
     def __init__(self, p):
         data = self.buildCigreData()
         incidence, branchR, branchL, nodeNames, busCapacitance = self.assembleNetwork(data)
@@ -16,9 +33,7 @@ class CIGREMV14System(System):
         source = Infbus(1, p["Sbase_VA"], "cigre_source"); source.p["kA"]["num"] = 100
         ground = Infbus(1, p["Sbase_VA"], "cigre_ground"); ground.p["kA"]["num"] = 100
         voltageDevices[sourceNode], voltageDevices[groundNode] = source, ground
-        p["clearTime_s"] = (
-            np.inf if p["clearMode"] == "angle" else p["fixedClearStart_s"]
-        )
+        clearingTime_s = np.inf if p["clearMode"] == "angle" else p["recoveryStart_s"]
         referenceMap[str(source.uref[0])] = lambda t: self.sourceVoltage(t, p)
         referenceMap[str(ground.uref[0])] = 0.0
         gfl, vsg = None, None
@@ -57,12 +72,17 @@ class CIGREMV14System(System):
         network = {"A": incidence, "R": branchR, "L": branchL, "busNames": nodeNames}
         super().__init__("CIGREMV14System", network, devices,
                          {"Vbase": 1, "Sbase": p["Sbase_VA"], "frequency_Hz": p["frequency_Hz"]}, referenceMap)
-        self.solverSettings["max_step"] = p["maximumStep_tau"] / (2 * np.pi * p["frequency_Hz"])
+        self.solverSettings = {
+            "method": "DOP853",
+            "max_step": 5e-3 / (2 * np.pi * self.base["frequency_Hz"]),
+            "rtol": 1e-3,
+            "atol": 1e-5,
+        }
         self.parameters, self.parameterNames = p, list(p)
         self.data, self.busCapacitance = data, busCapacitance
         self.eventName = "faultClearing"
         self.eventDirection = 1
-        self.eventTime_s = p["clearTime_s"]
+        self.eventTime_s = clearingTime_s
         if p["clearMode"] == "angle":
             self.eventStartTime_s = p["angleClearEligible_s"]
         self.eventStateIndex = self.stateNames.index(
@@ -104,15 +124,15 @@ class CIGREMV14System(System):
     def sourceVoltage(self, time_s, p):
         time_s = np.asarray(time_s)
         if p["clearMode"] == "angle":
-            faulted = time_s >= p["faultStartAngle_s"]
+            faulted = time_s >= p["faultStart_s"]
             if np.isfinite(self.eventTime_s):
                 faulted &= time_s < self.eventTime_s
             voltage = np.ones(time_s.shape)
-            voltage[faulted] = p["angleFaultVoltage_pu"]
+            voltage[faulted] = p["faultVoltage"]
             return float(voltage) if voltage.ndim == 0 else voltage
-        times = [0, p["fixedFaultStart_s"], p["fixedFaultComplete_s"], p["fixedClearStart_s"],
-                 p["fixedClearComplete_s"], p["validationTime_s"]]
-        values = [1, 1, p["fixedFaultVoltage_pu"], p["fixedFaultVoltage_pu"], 1, 1]
+        times = [0, p["faultStart_s"], p["faultComplete_s"], p["recoveryStart_s"],
+                 p["recoveryComplete_s"], p["validationTime_s"]]
+        values = [1, 1, p["faultVoltage"], p["faultVoltage"], 1, 1]
         return np.interp(time_s, times, values, right=1)
 
     def eventHandler(self, _time_s, state):
