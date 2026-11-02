@@ -6,15 +6,34 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 import numpy as np
 
-from codesimpy.api import SystemFactory
 from codesimpy.api.cli import CLI
+from codesimpy.systems import GFLLVRTSystem, VSGSMIBSystem
 
 
 class StdioServiceTests(unittest.TestCase):
+    def test_model_load_exposes_only_editable_parameters(self):
+        service = CLI()
+        request = {"systemName": "GFLLVRTSystem", "parameters": {}, "options": {}}
+        with tempfile.TemporaryDirectory() as directory:
+            service.loadModel(request, saveSnapshot=False)
+            service.system.outputJsonFactory.outputDirectory = Path(directory)
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                service.dispatch({"id": 1, "method": "model.load", "params": request})
+            result = json.loads(output.getvalue())["result"]
+
+        hidden = {"wBase", "Rg", "Lg", "breakpoints_s", "gridVoltage"}
+        self.assertFalse(hidden & result["parameters"].keys())
+        self.assertFalse(hidden & set(result["descriptor"]["system"]["parameterNames"]))
+        self.assertEqual(
+            set(result["parameters"]),
+            {row["id"] for row in result["descriptor"]["system"]["parameters"]},
+        )
+        self.assertTrue({"Kad", "wAD", "K1", "Id2"} <= result["parameters"].keys())
+
     def test_resident_protocol_lists_systems_and_shuts_down(self):
         process = subprocess.Popen(
             [sys.executable, "-u", "-m", "codesimpy.api.cli"],
@@ -31,7 +50,7 @@ class StdioServiceTests(unittest.TestCase):
         self.assertEqual(process.wait(timeout=10), 0)
 
     def test_integrator_streams_calculated_signal_chunks(self):
-        system, _, _ = SystemFactory.create("VSGSMIBSystem")
+        system = VSGSMIBSystem(VSGSMIBSystem.defaultParameters())
         point = system.initialize()
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
@@ -99,51 +118,48 @@ class StdioServiceTests(unittest.TestCase):
             )
             snapshot = next(Path(directory).glob("*-snapshot.json"))
             originalSignals = json.loads(snapshot.read_text(encoding="utf-8"))["signals"]
-            createSystem = SystemFactory.create
-
-            def createInDirectory(*args, **kwargs):
-                system, parameters, options = createSystem(*args, **kwargs)
-                system.outputJsonFactory.outputDirectory = Path(directory)
-                return system, parameters, options
-
             restarted = CLI()
-            with patch.object(SystemFactory, "create", side_effect=createInDirectory):
-                with contextlib.redirect_stdout(io.StringIO()):
-                    restarted.runTransientVoltage(3, {
-                        **request, "slowStateNames": ["delta_vsg"], "maxSamples": 2,
-                    })
+            restarted.loadModel(request, saveSnapshot=False)
+            restarted.system.outputJsonFactory.outputDirectory = Path(directory)
+            with contextlib.redirect_stdout(io.StringIO()):
+                restarted.runTransientVoltage(3, {
+                    **request, "slowStateNames": ["delta_vsg"], "maxSamples": 2,
+                })
             self.assertEqual(
                 len(restarted.system.outputJsonFactory.latestTransientVoltage["time_s"]), 2,
             )
             saved = json.loads(snapshot.read_text(encoding="utf-8"))
             self.assertEqual(saved["signals"], originalSignals)
             reopened = CLI()
-            with patch.object(SystemFactory, "create", side_effect=createInDirectory):
-                _, descriptor = reopened.loadModel(request)
+            reopened.loadModel(request, saveSnapshot=False)
+            reopened.system.outputJsonFactory.outputDirectory = Path(directory)
+            _, descriptor = reopened.loadModel(request)
             self.assertTrue(descriptor["transientVoltage"]["available"])
             self.assertEqual(descriptor["signals"], originalSignals)
             saved.pop("simulationData")
             snapshot.write_text(json.dumps(saved), encoding="utf-8")
             legacy = CLI()
-            legacy.system, _, _ = SystemFactory.create(
-                "VSGSMIBSystem", options=request["options"],
-            )
+            legacy.loadModel(request, saveSnapshot=False)
             legacy.systemName = "VSGSMIBSystem"
             legacy.system.outputJsonFactory.outputDirectory = Path(directory)
             self.assertIsNotNone(legacy.system.outputJsonFactory.loadSimulationFromSnapshot())
-            incompatible, _, _ = SystemFactory.create(
-                "VSGSMIBSystem", {"Pref": 0.75}, request["options"],
-            )
+            incompatibleParameters = VSGSMIBSystem.defaultParameters({
+                "Pref": 0.75, "validationTime_s": 2e-4, "outputStep_s": 1e-4,
+            })
+            incompatible = VSGSMIBSystem(incompatibleParameters)
             incompatible.outputJsonFactory.outputDirectory = Path(directory)
             with self.assertRaisesRegex(ValueError, "does not match"):
                 incompatible.outputJsonFactory.loadSimulationFromSnapshot()
             before = snapshot.read_bytes()
-            with patch.object(SystemFactory, "create", side_effect=createInDirectory):
-                with self.assertRaisesRegex(ValueError, "does not match"):
-                    CLI().runTransientVoltage(4, {
-                        **request, "parameters": {"Pref": 0.75},
-                        "slowStateNames": ["delta_vsg"], "maxSamples": 2,
-                    })
+            incompatibleService = CLI()
+            incompatibleRequest = {**request, "parameters": {"Pref": 0.75}}
+            incompatibleService.loadModel(incompatibleRequest, saveSnapshot=False)
+            incompatibleService.system.outputJsonFactory.outputDirectory = Path(directory)
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                incompatibleService.runTransientVoltage(4, {
+                    **incompatibleRequest,
+                    "slowStateNames": ["delta_vsg"], "maxSamples": 2,
+                })
             self.assertEqual(snapshot.read_bytes(), before)
             incompatible.outputJsonFactory.saveSnapshot()
             self.assertFalse(json.loads(snapshot.read_text(encoding="utf-8"))["signals"])

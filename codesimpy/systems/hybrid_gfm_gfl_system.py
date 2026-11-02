@@ -16,8 +16,8 @@ class HybridGFMGFLSystem(System):
     """
 
     @staticmethod
-    def defaultParameters():
-        return CIGREMV14System.defaultParameters()
+    def defaultParameters(overrides=None):
+        return CIGREMV14System.defaultParameters(overrides)
 
     def __init__(self, p):
         incidence, branchR, branchL, busNames, busCapacitance = self.buildReducedNetwork()
@@ -137,7 +137,3 @@ class HybridGFMGFLSystem(System):
 
     def calculateSignals(self, time_s, state, networkSignals):
         return CIGREMV14System.calculateSignals(self, time_s, state, networkSignals)
-
-
-# Keep the spelling from the original request importable as a compatibility alias.
-HybridGFMGFLsystem = HybridGFMGFLSystem

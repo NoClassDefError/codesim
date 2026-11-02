@@ -1,49 +1,56 @@
+import importlib.util
 import unittest
 
 import numpy as np
 
 import codesimpy
-from codesimpy.api import SystemFactory
+from codesimpy.systems import (
+    CIGREMV14System, GFLLVRTSystem, HybridGFMGFLSystem, HybridSystem,
+    IEEE13System, ParallelVSGSystem, SGSMIBSystem, VSGSMIBAVCSystem,
+    VSGSMIBSystem,
+)
+
+
+SYSTEM_CLASSES = (
+    HybridSystem, HybridGFMGFLSystem, VSGSMIBSystem, VSGSMIBAVCSystem,
+    GFLLVRTSystem, ParallelVSGSystem, SGSMIBSystem, IEEE13System,
+    CIGREMV14System,
+)
 
 
 class MigratedInventoryTests(unittest.TestCase):
-    def test_each_system_class_owns_fresh_defaults(self):
-        for name, systemClass in SystemFactory.systemClasses.items():
-            with self.subTest(system=name):
+    def test_each_system_class_owns_fresh_complete_defaults(self):
+        for systemClass in SYSTEM_CLASSES:
+            with self.subTest(system=systemClass.__name__):
                 self.assertIn("defaultParameters", systemClass.__dict__)
-                first, second = systemClass.defaultParameters(), systemClass.defaultParameters()
+                first = systemClass.defaultParameters()
+                second = systemClass.defaultParameters()
                 self.assertIsInstance(first, dict)
                 self.assertIsNot(first, second)
-                self.assertIn("validationTime_s", first)
+                for name in ("validationTime_s", "outputStep_s",
+                             "residualTolerance", "breakpoints_s"):
+                    self.assertIn(name, first)
+
+    def test_system_factory_is_removed(self):
+        self.assertIsNone(importlib.util.find_spec("codesimpy.api.system_factory"))
+        self.assertFalse(hasattr(codesimpy, "SystemFactory"))
 
     def test_time_domain_fault_parameters_use_one_schema(self):
         canonical = {
             "faultStart_s", "faultComplete_s", "recoveryStart_s",
             "recoveryComplete_s", "faultVoltage",
         }
-        systems = [
-            "HybridSystem", "HybridGFMGFLSystem", "VSGSMIBSystem",
-            "VSGSMIBAVCSystem", "GFLLVRTSystem", "ParallelVSGSystem",
-            "SGSMIBSystem", "IEEE13System", "CIGREMV14System",
-        ]
-        for name in systems:
-            with self.subTest(system=name):
-                parameters, _ = SystemFactory.defaultParameters(name, {}, {})
-                self.assertTrue(canonical <= parameters.keys())
+        for systemClass in SYSTEM_CLASSES:
+            with self.subTest(system=systemClass.__name__):
+                self.assertTrue(canonical <= systemClass.defaultParameters().keys())
 
-    def test_legacy_fault_parameters_are_normalized(self):
-        parameters, _ = SystemFactory.defaultParameters("VSGSMIBSystem", {
-            "clearTime_s": 0.7, "faultVoltage_pu": 0.2,
-            "voltageRamp_s": 0.002,
-        }, {})
-        self.assertEqual(parameters["recoveryStart_s"], 0.7)
-        self.assertEqual(parameters["recoveryComplete_s"], 0.702)
-        self.assertEqual(parameters["faultVoltage"], 0.2)
-        self.assertNotIn("clearTime_s", parameters)
-        self.assertNotIn("faultVoltage_pu", parameters)
+    def test_parameter_overrides_recalculate_derived_values(self):
+        parameters = GFLLVRTSystem.defaultParameters({"SCR": 10, "rho": 0})
+        self.assertEqual(parameters["Lg"], 0.1)
+        self.assertEqual(parameters["Rg"], 0)
 
     def test_cigre_converter_defaults_match_simulink_reference(self):
-        parameters, _ = SystemFactory.defaultParameters("CIGREMV14System", {}, {})
+        parameters = CIGREMV14System.defaultParameters()
         expected = {
             "GFLSbase_VA": 1.5e6, "GFLLf": 0.07,
             "GFLKpCc": 0.3, "GFLKiCc": 1,
@@ -56,23 +63,19 @@ class MigratedInventoryTests(unittest.TestCase):
             with self.subTest(parameter=name):
                 self.assertEqual(parameters[name], value)
 
-    def test_gfl_lvrt_filter_damping_is_parameterized(self):
-        parameters, _ = SystemFactory.defaultParameters("GFLLVRTSystem", {}, {})
-        self.assertEqual(parameters["filterCapacitance_pu"], 0.068)
-        self.assertEqual(parameters["filterDampingConductance_pu"], 0.8)
-        system, _, _ = SystemFactory.create("GFLLVRTSystem")
+    def test_gfl_lvrt_initializes_directly(self):
+        parameters = GFLLVRTSystem.defaultParameters()
+        system = GFLLVRTSystem(parameters)
         self.assertEqual(system.devices["capacitor"].p["C"]["num"], 0.068)
-        self.assertEqual(system.devices["capacitor"].p["Gd"]["num"], 0.8)
-
-    def test_all_systems_are_exposed(self):
-        self.assertEqual(SystemFactory.systemNames, [
-            "HybridSystem", "HybridGFMGFLSystem", "VSGSMIBSystem", "VSGSMIBAVCSystem", "GFLLVRTSystem",
-            "ParallelVSGSystem", "SGSMIBSystem", "IEEE13System",
-            "CIGREMV14System",
-        ])
+        self.assertEqual(system.devices["capacitor"].p["Gd"]["num"], 0.0)
+        expected = {"Kad": 0.2, "wAD": 10.0, "K1": 0.3, "Id2": 1.0}
+        for name, value in expected.items():
+            with self.subTest(parameter=name):
+                self.assertEqual(parameters[name], value)
+                self.assertEqual(system.devices["gfl"].p[name]["num"], value)
 
     def test_hybrid_gfm_gfl_reduces_cigre_to_four_nodes(self):
-        system, _, _ = SystemFactory.create("HybridGFMGFLSystem")
+        system = HybridGFMGFLSystem(HybridGFMGFLSystem.defaultParameters())
         self.assertEqual(system.network["busNames"], ["Infinite bus", "7", "8", "9"])
         self.assertEqual(system.network["A"].shape, (4, 3))
         np.testing.assert_allclose(system.network["R"], [

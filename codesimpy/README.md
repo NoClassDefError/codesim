@@ -23,7 +23,6 @@ python -m pip install numpy scipy sympy
 codesimpy/
 ├─ api/
 │  ├─ cli.py                    Resident stdin/stdout JSON service
-│  └─ system_factory.py         Registry, defaults, and system construction
 ├─ api/
 │  └─ output_json_factory.py   Stdout events and persistent snapshots
 ├─ components/
@@ -44,24 +43,18 @@ codesimpy/
 ## Class API
 
 ```python
-from codesimpy.api import SystemFactory
+from codesimpy.systems import HybridSystem
 
-system, parameters, options = SystemFactory.create(
-    "HybridSystem",
-    parameters={"SCR": 2.0},
-    options={"EnableGFL": True},
-)
+parameters = HybridSystem.defaultParameters({"SCR": 2.0, "enableGFL": True})
+system = HybridSystem(parameters)
 
 operatingPoint = system.initialize(
-    options["StartTime_s"],
-    ResidualTolerance=options["ResidualTolerance"],
+    ResidualTolerance=parameters["residualTolerance"],
 )
 analysis = system.smallSignal.analyze(operatingPoint)
 ```
 
-`SystemFactory.systemNames` is the authoritative list of systems exposed to clients. `network`, `devices`, `base`, parameters, and options are ordinary dictionaries.
-
-Each system class owns its raw parameter defaults through `defaultParameters()`. The factory adds shared derived values, normalizes legacy fault names, and prepares simulation options.
+Each system class owns its complete defaults through `defaultParameters(overrides=None)`, including derived values, fault breakpoints, output step, and initialization tolerance. Construct a system by passing that dictionary directly to its initializer. `network`, `devices`, `base`, and parameters are ordinary dictionaries.
 
 All time-domain models use the same fault parameters:
 
@@ -69,7 +62,7 @@ All time-domain models use the same fault parameters:
 - `recoveryStart_s` and `recoveryComplete_s`: start and end of voltage recovery;
 - `faultVoltage`: retained grid-voltage magnitude in per unit.
 
-`SystemFactory` accepts the former model-specific names for compatibility and normalizes them to this schema.
+Legacy aliases are not accepted; use these canonical names throughout the project.
 
 ## Resident stdio service
 

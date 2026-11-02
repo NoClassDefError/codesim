@@ -735,7 +735,15 @@ body[data-view="viewer"] .toolbar-actions .toolbar-icon-button {
   background: var(--vscode-button-background, #0e639c);
   cursor: pointer;
 }
-.signal-chart { display: block; width: 100%; min-width: 520px; height: 224px; }
+.signal-chart {
+  display: block;
+  width: 100%;
+  min-width: 520px;
+  height: 224px;
+  cursor: crosshair;
+  touch-action: none;
+  user-select: none;
+}
 .chart-background { fill: var(--vscode-editor-background, #181818); }
 .chart-grid {
   stroke: var(--vscode-editorWidget-border, #3a3a3a);
@@ -756,6 +764,14 @@ body[data-view="viewer"] .toolbar-actions .toolbar-icon-button {
   vector-effect: non-scaling-stroke;
 }
 .chart-line.selected { stroke-width: 2.8; opacity: 1; }
+.chart-marquee {
+  fill: color-mix(in srgb, var(--vscode-focusBorder, #007fd4) 24%, transparent);
+  stroke: var(--vscode-focusBorder, #007fd4);
+  stroke-width: 1;
+  stroke-dasharray: 5 3;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
 .chart-tick, .chart-label {
   fill: var(--vscode-descriptionForeground, #a8a8a8);
   font-family: "Times New Roman", Times, serif;

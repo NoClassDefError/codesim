@@ -7,13 +7,24 @@ from pathlib import Path
 
 import numpy as np
 
-from codesimpy.api import SystemFactory
 from codesimpy.components import VSGCCAVC
+from codesimpy.systems import VSGSMIBAVCSystem, VSGSMIBSystem
+
+
+def initializeVSG(systemClass=VSGSMIBSystem, parameters=None):
+    parameters = systemClass.defaultParameters(parameters)
+    system = systemClass(parameters)
+    runOptions = {
+        "ResidualTolerance": parameters["residualTolerance"],
+        "SolverSettings": {},
+        "Breakpoints_s": parameters["breakpoints_s"],
+    }
+    return system, parameters, runOptions
 
 
 class VSGSMIBTests(unittest.TestCase):
     def test_transient_voltage_decomposition_reports_progress(self):
-        system, _, options = SystemFactory.create("VSGSMIBSystem")
+        system, _, options = initializeVSG()
         point = system.initialize(ResidualTolerance=options["ResidualTolerance"])
         progress = io.StringIO()
 
@@ -35,7 +46,7 @@ class VSGSMIBTests(unittest.TestCase):
         self.assertIn("complete; 1/1 QSS samples converged", messages[-1])
 
     def test_avc_system_initializes_and_simulates(self):
-        system, _, options = SystemFactory.create("VSGSMIBAVCSystem")
+        system, _, options = initializeVSG(VSGSMIBAVCSystem)
         self.assertIsInstance(system.devices["vsg"], VSGCCAVC)
         point = system.initialize(ResidualTolerance=options["ResidualTolerance"])
         result = system.simulate(
@@ -48,9 +59,7 @@ class VSGSMIBTests(unittest.TestCase):
     def test_both_device_models_initialize(self):
         for model in ("VSGCC", "VSGCL"):
             with self.subTest(model=model):
-                system, _, options = SystemFactory.create(
-                    "VSGSMIBSystem", options={"DeviceModel": model}
-                )
+                system, _, options = initializeVSG(parameters={"deviceModel": model})
                 point = system.initialize(
                     ResidualTolerance=options["ResidualTolerance"]
                 )
@@ -60,7 +69,7 @@ class VSGSMIBTests(unittest.TestCase):
                 )
 
     def test_fault_simulation_and_descriptor(self):
-        system, _, _ = SystemFactory.create("VSGSMIBSystem")
+        system, _, _ = initializeVSG()
         point = system.initialize()
         result = system.simulate(
             np.linspace(0, 0.002, 5), InitialState=point["state"], saveSnapshot=False,
@@ -80,9 +89,7 @@ class VSGSMIBTests(unittest.TestCase):
             "recoveryStart_s": 0.01, "recoveryComplete_s": 0.0101,
             "validationTime_s": 0.02,
         }
-        system, _, options = SystemFactory.create(
-            "VSGSMIBSystem", parameters=parameters,
-        )
+        system, _, options = initializeVSG(parameters=parameters)
         point = system.initialize(ResidualTolerance=options["ResidualTolerance"])
         result = system.simulate(
             np.linspace(0, 0.02, 201), InitialState=point["state"],
@@ -102,7 +109,7 @@ class VSGSMIBTests(unittest.TestCase):
         )
 
     def test_qss_uses_rotating_frame_initialization_residual(self):
-        system, _, options = SystemFactory.create("VSGSMIBSystem")
+        system, _, options = initializeVSG()
         point = system.initialize(ResidualTolerance=options["ResidualTolerance"])
         result = system.simulate(
             np.linspace(0, 0.002, 5), InitialState=point["state"], saveSnapshot=False,
@@ -166,7 +173,7 @@ class VSGSMIBTests(unittest.TestCase):
         self.assertGreater(abs(slowDerivative), 1e-4)
 
     def test_transient_voltage_components_approximately_reconstruct_voltage(self):
-        system, _, options = SystemFactory.create("VSGSMIBSystem")
+        system, _, options = initializeVSG()
         point = system.initialize(ResidualTolerance=options["ResidualTolerance"])
         result = system.simulate(
             np.linspace(0.195, 0.205, 21), InitialState=point["state"], saveSnapshot=False,
@@ -203,7 +210,7 @@ class VSGSMIBTests(unittest.TestCase):
         self.assertIn("reconstructionError", serialized["components"])
 
     def test_transient_voltage_supports_multiple_slow_states(self):
-        system, _, options = SystemFactory.create("VSGSMIBSystem")
+        system, _, options = initializeVSG()
         point = system.initialize(ResidualTolerance=options["ResidualTolerance"])
         result = system.simulate(
             np.linspace(0.195, 0.205, 21), InitialState=point["state"], saveSnapshot=False,
@@ -256,7 +263,7 @@ class VSGSMIBTests(unittest.TestCase):
         self.assertEqual(thinned["sampleIndices"][-1], result["time_s"].size - 1)
 
     def test_transient_voltage_survives_unavailable_linearization(self):
-        system, _, options = SystemFactory.create("VSGSMIBSystem")
+        system, _, options = initializeVSG()
         point = system.initialize(ResidualTolerance=options["ResidualTolerance"])
         result = system.simulate(
             np.linspace(0, 0.002, 3), InitialState=point["state"], saveSnapshot=False,
@@ -283,7 +290,7 @@ class VSGSMIBTests(unittest.TestCase):
     def test_snapshot_merges_independent_results(self):
         with tempfile.TemporaryDirectory() as directory:
             outputDirectory = Path(directory)
-            simulationSystem, _, _ = SystemFactory.create("VSGSMIBSystem")
+            simulationSystem, _, _ = initializeVSG()
             simulationSystem.outputJsonFactory.outputDirectory = outputDirectory
             point = simulationSystem.initialize()
             simulation = simulationSystem.simulate(
@@ -296,7 +303,7 @@ class VSGSMIBTests(unittest.TestCase):
             }
             snapshot.write_text(json.dumps(first), encoding="utf-8")
 
-            analysisSystem, _, _ = SystemFactory.create("VSGSMIBSystem")
+            analysisSystem, _, _ = initializeVSG()
             analysisSystem.outputJsonFactory.outputDirectory = outputDirectory
             operatingPoint = analysisSystem.initialize()
             analysisSystem.smallSignal.analyze(operatingPoint)

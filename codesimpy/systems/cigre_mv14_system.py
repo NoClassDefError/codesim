@@ -8,8 +8,9 @@ from ..core import System
 
 class CIGREMV14System(System):
     @staticmethod
-    def defaultParameters():
-        return {
+    def defaultParameters(overrides=None):
+        overrides = dict(overrides or {})
+        p = {
             "Sbase_VA": 25e6, "VbaseLL_V": 20e3, "frequency_Hz": 50,
             "VSGSbase_VA": 5e6, "GFLSbase_VA": 1.5e6, "GFLPref": 1,
             "GFLQref": 0, "GFLLf": 0.07, "GFLKpCc": 0.3, "GFLKiCc": 1,
@@ -21,8 +22,22 @@ class CIGREMV14System(System):
             "faultComplete_s": 0.101, "recoveryStart_s": 0.25,
             "recoveryComplete_s": 0.2501, "faultVoltage": 0.1,
             "validationTime_s": 1, "outputStep_s": 1e-4,
-            "maximumStep_tau": 2e-3,
+            "maximumStep_tau": 2e-3, "clearMode": "time",
+            "residualTolerance": 1e-4,
         }
+        if overrides.get("clearMode") == "angle":
+            p.update({"faultStart_s": 0.20, "faultComplete_s": 0.201,
+                      "faultVoltage": 0.0})
+        p.update(overrides)
+        p["wBase"] = 2 * np.pi * p["frequency_Hz"]
+        p["breakpoints_s"] = (
+            [p["faultStart_s"], p["angleClearEligible_s"]]
+            if p["clearMode"] == "angle"
+            else [p[name] for name in (
+                "faultStart_s", "faultComplete_s", "recoveryStart_s", "recoveryComplete_s",
+            )]
+        )
+        return p
 
     def __init__(self, p):
         data = self.buildCigreData()

@@ -7,8 +7,19 @@ from typing import Any
 import numpy as np
 
 from ..core import SmallSignalAnalyzer
+from ..systems import (CIGREMV14System, GFLLVRTSystem, HybridGFMGFLSystem,
+                       HybridSystem, IEEE13System, ParallelVSGSystem,
+                       SGSMIBSystem, VSGSMIBAVCSystem, VSGSMIBSystem)
 from .output_json_factory import OutputJsonFactory
-from .system_factory import SystemFactory
+
+
+SYSTEM_CLASSES = {
+    systemClass.__name__: systemClass for systemClass in (
+        HybridSystem, HybridGFMGFLSystem, VSGSMIBSystem, VSGSMIBAVCSystem,
+        GFLLVRTSystem, ParallelVSGSystem, SGSMIBSystem, IEEE13System,
+        CIGREMV14System,
+    )
+}
 
 
 class CLI:
@@ -47,12 +58,12 @@ class CLI:
         method = request["method"]
         params = request.get("params", {})
         if method == "getSystems":
-            self.outputJsonFactory.writeResponse(requestId, SystemFactory.systemNames)
+            self.outputJsonFactory.writeResponse(requestId, list(SYSTEM_CLASSES))
         elif method == "model.load":
             snapshotFile, descriptor = self.loadModel(params)
             self.outputJsonFactory.writeResponse(requestId, {
                 "systemName": self.systemName,
-                "parameters": self.parameters,
+                "parameters": self.system.outputJsonFactory.editableParameters(),
                 "options": self.options,
                 "descriptor": descriptor,
                 "snapshotFile": str(snapshotFile),
@@ -90,9 +101,31 @@ class CLI:
             }), sort_keys=True,
         )
         if self.system is None or modelKey != self.modelKey:
-            self.system, self.parameters, self.options = SystemFactory.create(
-                systemName, parameters, modelOptions,
-            )
+            systemClass = SYSTEM_CLASSES[systemName]
+            runtimeOptionNames = {
+                "StartTime_s", "EndTime_s", "OutputStep_s", "SolverSettings",
+                "ResidualTolerance", "Breakpoints_s",
+            }
+            unknownOptions = set(modelOptions) - runtimeOptionNames
+            if unknownOptions:
+                raise KeyError(
+                    "model settings must be supplied as parameters: "
+                    + ", ".join(sorted(unknownOptions))
+                )
+            self.parameters = systemClass.defaultParameters(parameters)
+            self.options = {
+                "StartTime_s": 0.0,
+                "EndTime_s": self.parameters["validationTime_s"],
+                "OutputStep_s": self.parameters["outputStep_s"],
+                "SolverSettings": {},
+                "ResidualTolerance": self.parameters["residualTolerance"],
+                "Breakpoints_s": self.parameters["breakpoints_s"],
+            }
+            self.options.update({
+                name: value for name, value in modelOptions.items()
+                if value is not None
+            })
+            self.system = systemClass(self.parameters)
             self.system.outputJsonFactory.preserveExisting = True
             self.systemName = systemName
             self.modelKey = modelKey

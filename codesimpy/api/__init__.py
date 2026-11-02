@@ -1,6 +1,5 @@
-"""High-level construction and execution API."""
+"""High-level execution API."""
 
-from .system_factory import SystemFactory
 from .output_json_factory import OutputJsonFactory
 
-__all__ = ["SystemFactory", "OutputJsonFactory"]
+__all__ = ["OutputJsonFactory"]

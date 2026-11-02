@@ -4,6 +4,7 @@ from .capacitor import Capacitor
 from .cpl import CPL
 from .gfl_long_term import GFLLongTerm
 from .gfl_vsc import GFLVSC
+from .GFLVSCDamp import GFLVSCDamp
 from .infbus import Infbus
 from .induction_motor import InductionMotor
 from .pq_load import PQLoad
@@ -16,7 +17,7 @@ from .zero_current import ZeroCurrent
 from .zip import ZIP
 
 __all__ = [
-    "Capacitor", "CPL", "GFLLongTerm", "GFLVSC", "Infbus",
+    "Capacitor", "CPL", "GFLLongTerm", "GFLVSC", "GFLVSCDamp", "Infbus",
     "InductionMotor", "PQLoad", "SG", "VSGCC", "VSGCCAVC",
     "VSGCL", "VSGLongTerm", "ZeroCurrent", "ZIP",
 ]

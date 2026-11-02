@@ -40,17 +40,38 @@ interface PlotPanelProps {
   onSelect: (plotId: string) => void;
   onClose: (plotId: string) => void;
   onRemoveSignal: (plotId: string, signalId: string) => void;
+  onZoomRange: (range: NumericRange) => void;
+}
+
+interface MarqueeSelection {
+  pointerId: number;
+  startX: number;
+  currentX: number;
 }
 
 const noSeries: ChartSeries[] = [];
 
-function finiteExtent(series: ChartSeries[]): NumericRange {
+function finiteExtent(series: ChartSeries[], xRange: NumericRange): NumericRange {
   let minimum = Number.POSITIVE_INFINITY;
   let maximum = Number.NEGATIVE_INFINITY;
   for (const item of series) {
-    const stats = arrayStats(item.signal.values);
-    minimum = Math.min(minimum, stats.minimum);
-    maximum = Math.max(maximum, stats.maximum);
+    const { time, values } = item.signal;
+    const count = Math.min(time.length, values.length);
+    const timeStats = arrayStats(time);
+    if (xRange[0] <= timeStats.minimum && xRange[1] >= timeStats.maximum) {
+      const valueStats = arrayStats(values);
+      minimum = Math.min(minimum, valueStats.minimum);
+      maximum = Math.max(maximum, valueStats.maximum);
+      continue;
+    }
+    const [start, end] = visibleIndexRange(time, count, xRange[0], xRange[1]);
+    for (let index = start; index < end; index += 1) {
+      const value = values[index];
+      if (Number.isFinite(value)) {
+        minimum = Math.min(minimum, value);
+        maximum = Math.max(maximum, value);
+      }
+    }
   }
   if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) {
     return [0, 1];
@@ -170,10 +191,13 @@ const PlotPanel = memo(function PlotPanel({
   onSelect,
   onClose,
   onRemoveSignal,
+  onZoomRange,
 }: PlotPanelProps) {
+  const dragRef = useRef<MarqueeSelection | null>(null);
+  const [marquee, setMarquee] = useState<MarqueeSelection | null>(null);
   const allSeries = [...series, ...rightSeries];
-  const leftRange = finiteExtent(series);
-  const rightRange = finiteExtent(rightSeries);
+  const leftRange = finiteExtent(series, xRange);
+  const rightRange = finiteExtent(rightSeries, xRange);
   const xTicks = Array.from({ length: 5 }, (_, index) =>
     xRange[0] + ((xRange[1] - xRange[0]) * index) / 4,
   );
@@ -186,6 +210,94 @@ const PlotPanel = memo(function PlotPanel({
   );
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
+
+  const pointerPosition = (
+    svg: SVGSVGElement,
+    clientX: number,
+    clientY: number,
+  ) => {
+    const bounds = svg.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) {
+      return null;
+    }
+    return {
+      x: ((clientX - bounds.left) / bounds.width) * width,
+      y: ((clientY - bounds.top) / bounds.height) * height,
+    };
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<SVGSVGElement>) => {
+    if (event.button !== 0) {
+      return;
+    }
+    const point = pointerPosition(event.currentTarget, event.clientX, event.clientY);
+    if (
+      !point
+      || point.x < margin.left
+      || point.x > width - margin.right
+      || point.y < margin.top
+      || point.y > height - margin.bottom
+    ) {
+      return;
+    }
+    const selection = {
+      pointerId: event.pointerId,
+      startX: point.x,
+      currentX: point.x,
+    };
+    dragRef.current = selection;
+    setMarquee(selection);
+    onSelect(plotId);
+    event.currentTarget.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<SVGSVGElement>) => {
+    const selection = dragRef.current;
+    if (!selection || selection.pointerId !== event.pointerId) {
+      return;
+    }
+    const point = pointerPosition(event.currentTarget, event.clientX, event.clientY);
+    if (!point) {
+      return;
+    }
+    const next = {
+      ...selection,
+      currentX: Math.min(width - margin.right, Math.max(margin.left, point.x)),
+    };
+    dragRef.current = next;
+    setMarquee(next);
+    event.preventDefault();
+  };
+
+  const finishMarquee = (
+    event: React.PointerEvent<SVGSVGElement>,
+    applyZoom: boolean,
+  ) => {
+    const selection = dragRef.current;
+    if (!selection || selection.pointerId !== event.pointerId) {
+      return;
+    }
+    const point = pointerPosition(event.currentTarget, event.clientX, event.clientY);
+    const endX = point
+      ? Math.min(width - margin.right, Math.max(margin.left, point.x))
+      : selection.currentX;
+    dragRef.current = null;
+    setMarquee(null);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    if (applyZoom && Math.abs(endX - selection.startX) >= 8) {
+      const lowX = Math.min(selection.startX, endX);
+      const highX = Math.max(selection.startX, endX);
+      const span = xRange[1] - xRange[0];
+      onZoomRange([
+        xRange[0] + ((lowX - margin.left) / plotWidth) * span,
+        xRange[0] + ((highX - margin.left) / plotWidth) * span,
+      ]);
+    }
+    event.preventDefault();
+  };
 
   return (
     <section
@@ -235,7 +347,15 @@ const PlotPanel = memo(function PlotPanel({
       {allSeries.length === 0 ? (
         <div className="plot-empty">No matching signal in this snapshot.</div>
       ) : (
-        <svg className="signal-chart" viewBox={`0 0 ${width} ${height}`} aria-label={title}>
+        <svg
+          className="signal-chart"
+          viewBox={`0 0 ${width} ${height}`}
+          aria-label={`${title}. Drag horizontally across the plot to zoom.`}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={(event) => finishMarquee(event, true)}
+          onPointerCancel={(event) => finishMarquee(event, false)}
+        >
           <rect
             className="chart-background"
             x={margin.left}
@@ -333,6 +453,15 @@ const PlotPanel = memo(function PlotPanel({
               strokeDasharray={item.dashed ? '9 6' : undefined}
             />
           ))}
+          {marquee && (
+            <rect
+              className="chart-marquee"
+              x={Math.min(marquee.startX, marquee.currentX)}
+              y={margin.top}
+              width={Math.abs(marquee.currentX - marquee.startX)}
+              height={plotHeight}
+            />
+          )}
           <text
             className="chart-label"
             x={18}
@@ -608,13 +737,17 @@ export function WaveformPanel({ snapshot }: Props) {
     setZoomWindow([start, start + visibleSpan]);
   };
 
+  const zoomToRange = useCallback((range: NumericRange) => {
+    setZoomWindow(range);
+  }, []);
+
   return (
     <section className="signals-workspace">
       <section className="waveform-panel" aria-label="Simulation plots">
         <div className="waveform-header">
           <div className="waveform-title">
             <strong>Simulation results</strong>
-            <span>Select a plot, then add signals from the right</span>
+            <span>Select a plot, add signals from the right, or drag across a chart to zoom</span>
           </div>
           <div className="time-controls" aria-label="Plot and time controls">
             <button type="button" onClick={addPlot} title="Create a new empty plot">
@@ -679,6 +812,7 @@ export function WaveformPanel({ snapshot }: Props) {
               onSelect={setSelectedPlotId}
               onClose={closePlot}
               onRemoveSignal={removeSignal}
+              onZoomRange={zoomToRange}
             />
           ))}
         </div>

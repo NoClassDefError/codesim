@@ -17,14 +17,16 @@ function signalKind(signal: SignalDescriptor): DefaultPlotKind | undefined {
   const labelPrefix = signal.label.trim().toLowerCase().split('-', 1)[0].trim();
   if (
     labelPrefix === '|v|' ||
-    id.includes('busvoltagemagnitude')
+    id.includes('busvoltagemagnitude') ||
+    id.includes('nodevoltage')
   ) {
     return 'voltage';
   }
   if (
     labelPrefix === 'i' ||
     id.includes('linecurrentmagnitude') ||
-    id.includes('line-current')
+    id.includes('line-current') ||
+    id.includes('branchcurrent')
   ) {
     return 'current';
   }

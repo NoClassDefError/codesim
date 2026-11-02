@@ -16,6 +16,10 @@ import sympy as sp
 
 
 class OutputJsonFactory:
+    NON_EDITABLE_SYSTEM_PARAMETERS = frozenset({
+        "wBase", "Rg", "Lg", "breakpoints_s", "gridVoltage", "Zbase_ohm",
+    })
+
     def __init__(self, system: Any = None, outputDirectory: str | Path | None = None) -> None:
         """[shared] Initialize stdout streaming state and snapshot storage state."""
         self.system = system
@@ -127,6 +131,25 @@ class OutputJsonFactory:
             "classSource": source, "instanceSource": source,
         }
 
+    def editableParameterNames(self) -> list[str]:
+        """Return only model inputs that can be represented and edited by the UI."""
+        hidden = self.NON_EDITABLE_SYSTEM_PARAMETERS | set(
+            getattr(self.system, "nonEditableParameterNames", ())
+        )
+        return [
+            name for name in self.system.parameterNames
+            if name in self.system.parameters
+            and name not in hidden
+            and not callable(self.system.parameters[name])
+        ]
+
+    def editableParameters(self) -> dict[str, Any]:
+        """Return the editable parameter values exposed by the backend protocol."""
+        return {
+            name: self.system.parameters[name]
+            for name in self.editableParameterNames()
+        }
+
     def getDescriptor(self, simulation: dict[str, Any] | None = None) -> dict[str, Any]:
         """[snapshot] Build the complete frontend descriptor in memory."""
         simulation = simulation or {}
@@ -176,9 +199,10 @@ class OutputJsonFactory:
                                self._parameter("L", "Inductance", L[i], "pu", "Line")],
                 "sourceReference": source,
             })
+        editableParameterNames = self.editableParameterNames()
         systemParameters = [
             {**self._parameter(name, name, self.system.parameters[name], "", "System"), "editable": True}
-            for name in self.system.parameterNames
+            for name in editableParameterNames
         ]
         return {
             "schemaVersion": 1,
@@ -186,7 +210,7 @@ class OutputJsonFactory:
                 "id": re.sub(r"[^a-zA-Z0-9_-]", "-", self.system.name).lower(),
                 "name": self.system.name,
                 "className": f"{self.system.__class__.__module__}.{self.system.__class__.__name__}",
-                "parameterNames": self.system.parameterNames, "parameters": systemParameters,
+                "parameterNames": editableParameterNames, "parameters": systemParameters,
                 "source": source,
             },
             "components": components, "connections": connections,
@@ -233,7 +257,10 @@ class OutputJsonFactory:
         if data.get("system", {}).get("name") != self.system.name:
             return None
         saved = {item["id"]: item["value"] for item in data["system"].get("parameters", [])}
-        current = {name: self.jsonSafe(self.system.parameters[name]) for name in self.system.parameterNames}
+        current = {
+            name: self.jsonSafe(self.system.parameters[name])
+            for name in self.editableParameterNames()
+        }
         if saved != current:
             raise ValueError("saved simulation does not match the current model parameters")
         states = {item["label"]: item for item in data.get("signals", []) if item.get("category") == "state"}
@@ -513,12 +540,14 @@ class OutputJsonFactory:
             busIds = [f"bus-{i + 1}" for i in range(np.asarray(self.system.network["A"]).shape[0])]
         busNames = list(values.get("busNames", self.system.busNames))
         originalNames = list(self.system.network["busNames"])
+        systemId = re.sub(r"[^a-zA-Z0-9_-]", "-", self.system.name).lower()
         plotDefinitions = (
             ("busVoltageMagnitude", "|V|", "pu", "component"),
             ("lineCurrentMagnitude", "I", "pu", "connection"),
             ("activePower", "P", "pu", "component"),
             ("reactivePower", "Q", "pu", "component"),
             ("busVoltageAngleDeg", "theta", "deg", "component"),
+            ("lvrtMode", "LVRT mode", "", "system"),
         )
         for field, label, unit, ownerKind in plotDefinitions:
             if field not in values:
@@ -531,6 +560,8 @@ class OutputJsonFactory:
             for column in range(matrix.shape[1]):
                 if ownerKind == "connection":
                     owner, ownerName = f"branch-{column + 1}", f"Branch {column + 1}"
+                elif ownerKind == "system":
+                    owner, ownerName = systemId, self.system.name
                 elif column < len(busNames) and busNames[column] in originalNames:
                     ownerName = busNames[column]
                     owner = busIds[originalNames.index(ownerName)]
@@ -540,8 +571,6 @@ class OutputJsonFactory:
                     owner, ownerKind, 
                     f"{label}-{ownerName}", unit, time, matrix[:, column],
                 ))
-
-        systemId = re.sub(r"[^a-zA-Z0-9_-]", "-", self.system.name).lower()
         if "state" in simulation:
             state = np.asarray(simulation["state"])
             stateNames = list(map(str, simulation.get("stateNames", self.system.stateNames)))

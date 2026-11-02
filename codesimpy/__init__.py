@@ -11,10 +11,9 @@ from .components import (Capacitor, CPL, GFLLongTerm, GFLVSC, Infbus,
                          InductionMotor, PQLoad, SG, VSGCC, VSGCCAVC,
                          VSGCL, VSGLongTerm, ZIP, ZeroCurrent)
 from .systems import (CIGREMV14System, GFLLVRTSystem, HybridGFMGFLSystem,
-                      HybridGFMGFLsystem, HybridSystem,
-                      IEEE13System, ParallelVSGSystem, SGSMIBSystem,
+                      HybridSystem, IEEE13System, ParallelVSGSystem, SGSMIBSystem,
                       VSGSMIBAVCSystem, VSGSMIBSystem)
-from .api import OutputJsonFactory, SystemFactory
+from .api import OutputJsonFactory
 
 __all__ = [
     "Device", "RLGrid", "System", "SmallSignalAnalyzer",
@@ -23,7 +22,6 @@ __all__ = [
     "InductionMotor", "PQLoad", "SG", "VSGCC", "VSGCCAVC",
     "VSGCL", "VSGLongTerm", "ZIP", "ZeroCurrent",
     "CIGREMV14System", "GFLLVRTSystem", "HybridSystem",
-    "HybridGFMGFLSystem", "HybridGFMGFLsystem", "IEEE13System",
+    "HybridGFMGFLSystem", "IEEE13System",
     "ParallelVSGSystem", "SGSMIBSystem", "VSGSMIBAVCSystem", "VSGSMIBSystem",
-    "SystemFactory",
 ]

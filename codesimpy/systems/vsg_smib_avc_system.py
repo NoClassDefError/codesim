@@ -9,10 +9,12 @@ class VSGSMIBAVCSystem(VSGSMIBSystem):
     """SMIB fault-study system using :class:`VSGCCAVC`."""
 
     @staticmethod
-    def defaultParameters():
-        return VSGSMIBSystem.defaultParameters()
+    def defaultParameters(overrides=None):
+        parameters = {"deviceModel": "VSGCCAVC"}
+        parameters.update(overrides or {})
+        return VSGSMIBSystem.defaultParameters(parameters)
 
-    def __init__(self, p: dict[str, Any], *, ClearingState: str = "delta") -> None:
-        super().__init__(p, DeviceModel="VSGCCAVC", ClearingState=ClearingState)
+    def __init__(self, p: dict[str, Any]) -> None:
+        super().__init__(p)
         self.name = "VSGSMIBAVCSystem"
         self.rlGrid.systemName = self.name

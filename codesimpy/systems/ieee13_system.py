@@ -8,13 +8,37 @@ from ..core import System
 
 class IEEE13System(System):
     @staticmethod
-    def defaultParameters():
-        return {
+    def defaultParameters(overrides=None):
+        overrides = dict(overrides or {})
+        p = {
             "Sbase_VA": 5e6, "Vbase_LL_V": 4.16e3, "frequency_Hz": 50,
             "validationTime_s": 0.5, "faultStart_s": 0.10,
             "faultComplete_s": 0.101, "recoveryStart_s": 0.20,
             "recoveryComplete_s": 0.201, "faultVoltage": 0.8,
+            "Vbase": 4.16e3, "Sbase_Dev": 1e6, "GFMwref": 1,
+            "GFMPref": 1, "GFMVref": 1.1, "gflBusNames": ["645", "671"],
+            "gflPref": [0.5, 0.5], "gflQref": [0, 0], "gflKpPll": 0.2,
+            "gflKiPll": 0.2, "gfl671Vth": 0.92, "gfl671K1": 1.0,
+            "bus671ActiveZFraction": 0.65, "bus671LineRScale": 0.5,
+            "bus645Gd": 0.1, "switchResistance_pu": 5e-5,
+            "outputStep_s": None, "residualTolerance": 1e-4,
+            "enableConverters": False,
         }
+        if overrides.get("enableConverters"):
+            p.update({"validationTime_s": 0.3, "faultVoltage": 0.5})
+        p.update(overrides)
+        p["wBase"] = 2 * np.pi * p["frequency_Hz"]
+        p["Zbase_ohm"] = p["Vbase"]**2 / p["Sbase_VA"]
+        if p["outputStep_s"] is None:
+            p["outputStep_s"] = 1e-3 / p["wBase"]
+        p["breakpoints_s"] = [p[name] for name in (
+            "faultStart_s", "faultComplete_s", "recoveryStart_s", "recoveryComplete_s",
+        )]
+        p.setdefault("infbusVoltage", lambda t: float(np.interp(
+            t, [0, *p["breakpoints_s"], p["validationTime_s"]],
+            [1, 1, p["faultVoltage"], p["faultVoltage"], 1, 1], right=1,
+        )))
+        return p
 
     @staticmethod
     def converterDefaultParameters():
@@ -28,7 +52,8 @@ class IEEE13System(System):
             "validationTime_s": 0.3, "faultVoltage": 0.5,
         }
 
-    def __init__(self, p, *, EnableConverters=False):
+    def __init__(self, p):
+        enableConverters = p["enableConverters"]
         busTable, branchTable, loadTable, data = self.networkData()
         incidence, branchLpu, branchRpu = self.branches(busTable, branchTable, data, p)
         voltageDevices, currentDevices, referenceMap = [None] * len(busTable), [None] * len(busTable), {}
@@ -40,13 +65,13 @@ class IEEE13System(System):
                 voltageDevices[busIndex] = source
                 referenceMap[str(source.uref[0])] = p["infbusVoltage"]
                 hasSource = 0
-            elif EnableConverters and busName == "680":
+            elif enableConverters and busName == "680":
                 source = VSGCL(1, p["Sbase_Dev"], deviceIndex)
                 voltageDevices[busIndex] = source
                 for symbol, value in zip(source.uref, (p["GFMPref"], p["GFMVref"], p["GFMwref"])):
                     referenceMap[str(symbol)] = value
                 hasSource = 0
-            elif EnableConverters and busName in ("645", "671"):
+            elif enableConverters and busName in ("645", "671"):
                 source = GFLVSC(1, p["Sbase_Dev"], f"{deviceIndex}_gfl")
                 source.p["KpPll"]["num"], source.p["KiPll"]["num"] = p["gflKpPll"], p["gflKiPll"]
                 if busName == "671":
@@ -60,7 +85,7 @@ class IEEE13System(System):
             hasLoad = bool(rows)
             loadPpu = sum(row[1] for row in rows) * 1e3 / p["Sbase_VA"]
             loadQpu = sum(row[2] - row[3] for row in rows) * 1e3 / p["Sbase_VA"]
-            if EnableConverters:
+            if enableConverters:
                 if hasSource == 0 and hasLoad:
                     load = PQLoad(1, p["Sbase_VA"], f"{deviceIndex}_load")
                     referenceMap[str(load.uref[0])], referenceMap[str(load.uref[1])] = loadPpu, loadQpu
@@ -102,12 +127,12 @@ class IEEE13System(System):
                     currentDevices[busIndex] = ZeroCurrent(1, p["Sbase_VA"], f"{deviceIndex}_zero")
         devices = {"Vdev": voltageDevices, "Idev": currentDevices}
         network = {"A": incidence, "R": branchRpu, "L": branchLpu, "busNames": busTable}
-        name = "IEEE13System_converters" if EnableConverters else "IEEE13System_passive"
+        name = "IEEE13System_converters" if enableConverters else "IEEE13System_passive"
         super().__init__(name, network, devices,
                          {"Vbase": 1, "Sbase": p["Sbase_VA"], "frequency_Hz": p["wBase"] / (2 * np.pi)}, referenceMap)
         self.solverSettings["max_step"] = 1e-3 / p["wBase"]
         self.parameters, self.parameterNames = p, list(p)
-        self.enableConverters = EnableConverters
+        self.enableConverters = enableConverters
         self.data = {"busTable": busTable, "branchTable": branchTable, "loadTable": loadTable, **data}
 
     @staticmethod

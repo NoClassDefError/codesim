@@ -7,9 +7,11 @@ from ..core import System
 
 
 class HybridSystem(System):
+    nonEditableParameterNames = frozenset({"branchL", "branchR"})
+
     @staticmethod
-    def defaultParameters():
-        return {
+    def defaultParameters(overrides=None):
+        p = {
             "Vbase": 1, "Sbase": 25e6, "vsgSbase": 5e6, "gflSbase": 1.5e6,
             "frequency_Hz": 50, "gflPref": 1, "gflQref": 0, "gflVref": 1,
             "vsgPref": 1, "vsgVref": 1.10, "vsgImax": 1.5, "wref": 1,
@@ -21,9 +23,24 @@ class HybridSystem(System):
             "faultStart_s": 0.10, "faultComplete_s": 0.101,
             "recoveryStart_s": 0.5, "recoveryComplete_s": 0.501,
             "faultVoltage": 0.25, "SCR": 1.69, "rho": 1.0,
+            "outputStep_s": 2e-3, "residualTolerance": 1e-4,
+            "enableGFL": True,
         }
+        p.update(overrides or {})
+        p["wBase"] = 2 * np.pi * p["frequency_Hz"]
+        p["Lg"] = 1 / (p["SCR"] * np.sqrt(1 + p["rho"]**2))
+        p["Rg"] = p["rho"] * p["Lg"]
+        p["branchL"], p["branchR"] = p["Lg"], p["Rg"]
+        p["breakpoints_s"] = [p[name] for name in (
+            "faultStart_s", "faultComplete_s", "recoveryStart_s", "recoveryComplete_s",
+        )]
+        p.setdefault("gridVoltage", lambda t: float(np.interp(
+            t, [0, *p["breakpoints_s"], p["validationTime_s"]],
+            [1, 1, p["faultVoltage"], p["faultVoltage"], 1, 1], right=1,
+        )))
+        return p
 
-    def __init__(self, p, *, EnableGFL=True):
+    def __init__(self, p):
         source = Infbus(p["Vbase"], p["Sbase"], "hybrid_grid")
         vsg = VSGCC(p["Vbase"], p["vsgSbase"], "hybrid_vsg")
         vsg.p["Imax"]["num"] = p["vsgImax"]
@@ -33,7 +50,7 @@ class HybridSystem(System):
         zero = ZeroCurrent(p["Vbase"], p["Sbase"], "hybrid_grid_zero")
         refs = {str(source.uref[0]): p["gridVoltage"], str(vsg.uref[0]): p["vsgPref"],
                 str(vsg.uref[1]): p["vsgVref"], str(vsg.uref[2]): p["wref"]}
-        if EnableGFL:
+        if p["enableGFL"]:
             gfl = GFLVSC(p["Vbase"], p["gflSbase"], "hybrid_gfl")
             for sourceName, targetName in (("gflLf", "L"), ("gflKpCc", "Kpcc"), ("gflKiCc", "Kicc"),
                                            ("gflKpPll", "KpPll"), ("gflKiPll", "KiPll"),
@@ -53,7 +70,8 @@ class HybridSystem(System):
         super().__init__(name, network, devices,
                          {"Vbase": p["Vbase"], "Sbase": p["Sbase"], "frequency_Hz": p["frequency_Hz"]}, refs)
         self.solverSettings["max_step"] = 5e-3 / (2 * np.pi * p["frequency_Hz"])
-        self.parameters, self.parameterNames, self.enableGFL = p, list(p), EnableGFL
+        self.parameters, self.parameterNames = p, list(p)
+        self.enableGFL = p["enableGFL"]
 
     def calculateSignals(self, time_s, state, networkSignals):
         state = np.asarray(state)

@@ -11,23 +11,36 @@ from ..core import System
 
 class VSGSMIBSystem(System):
     @staticmethod
-    def defaultParameters():
-        return {
+    def defaultParameters(overrides=None):
+        p = {
             "Vbase": 1, "Sbase": 8100, "frequency_Hz": 50, "SCR": 2,
             "rho": 0.1, "Pref": 1, "Vref": 1.1, "wref": 1,
             "clearMode": "time", "clearAngle_rad": -np.pi / 3,
             "faultStart_s": 0.2, "faultComplete_s": 0.201,
             "minimumFaultDuration_s": 0.5, "recoveryStart_s": 1,
             "recoveryComplete_s": 1.001, "faultVoltage": 0.5,
-            "validationTime_s": 2,
+            "validationTime_s": 2, "Rv": 0.05,
+            "outputStep_s": 1e-4, "residualTolerance": 1e-4,
+            "deviceModel": "VSGCC", "clearingState": "delta",
         }
+        p.update(overrides or {})
+        p["wBase"] = 2 * np.pi * p["frequency_Hz"]
+        p["Lg"] = 1 / (p["SCR"] * np.sqrt(1 + p["rho"]**2))
+        p["Rg"] = p["rho"] * p["Lg"]
+        p["breakpoints_s"] = [p["faultStart_s"], p["faultComplete_s"]]
+        p["breakpoints_s"] += (
+            [p["recoveryStart_s"], p["recoveryComplete_s"]]
+            if p["clearMode"] == "time"
+            else [p["faultStart_s"] + p["minimumFaultDuration_s"]]
+        )
+        return p
 
-    def __init__(
-        self, p: dict[str, Any], *, DeviceModel: str = "VSGCC",
-        ClearingState: str = "delta",
-    ) -> None:
-        deviceClass = {"VSGCC": VSGCC, "VSGCCAVC": VSGCCAVC, "VSGCL": VSGCL}[DeviceModel]
+    def __init__(self, p: dict[str, Any]) -> None:
+        deviceModel = p["deviceModel"]
+        deviceClass = {"VSGCC": VSGCC, "VSGCCAVC": VSGCCAVC, "VSGCL": VSGCL}[deviceModel]
         vsg = deviceClass(p["Vbase"], p["Sbase"], "vsg")
+        if "Rv" in vsg.p:
+            vsg.p["Rv"]["num"] = p["Rv"]
         if "Kp" in p:
             vsg.p["Kp"]["num"] = p["Kp"]
         if "Lf" in p:
@@ -54,7 +67,7 @@ class VSGSMIBSystem(System):
             "Vbase": p["Vbase"], "Sbase": p["Sbase"],
             "frequency_Hz": p["frequency_Hz"],
         }
-        super().__init__(f"VSGSMIBSystem_{DeviceModel}", network, devices, base, refs)
+        super().__init__(f"VSGSMIBSystem_{deviceModel}", network, devices, base, refs)
         self.solverSettings = {
             "method": "RK45",
             "max_step": 5e-3 / (2 * np.pi * self.base["frequency_Hz"]),
@@ -63,7 +76,7 @@ class VSGSMIBSystem(System):
         }
         self.parameters = p
         self.parameterNames = list(p)
-        self.clearingState = ClearingState
+        self.clearingState = p["clearingState"]
         self.eventName = "faultClearing"
         self.eventTime_s = p["recoveryStart_s"]
         if p["clearMode"] == "angle":

@@ -91,7 +91,7 @@ The topology toolbar also provides refresh, automatic layout, and layout-save ac
 | `IEEE13System` | IEEE 13-bus distribution system with optional converters |
 | `CIGREMV14System` | CIGRE MV 14-bus system with VSG integration and fault studies |
 
-The list shown by the frontend comes from `SystemFactory.systemNames`; it is not hard-coded in the extension.
+The backend service builds the frontend list from the exported system classes; it is not hard-coded in the extension.
 
 ## Project structure
 
@@ -101,7 +101,6 @@ codesim/
 │  ├─ api/
 │  │  ├─ cli.py                  Resident stdio service and analysis endpoints
 │  │  ├─ output_json_factory.py  Stdout and snapshot serialization
-│  │  └─ system_factory.py       System registry, defaults, and construction
 │  ├─ components/                Converter, machine, source, and load models
 │  ├─ core/
 │  │  ├─ device.py               Device base class
@@ -131,7 +130,7 @@ codesim/
 2. Define its devices, network, base values, references, parameters, and parameter names.
 3. Implement `calculateSignals(time_s, state, networkSignals)`.
 4. Export it from `codesimpy/systems/__init__.py`.
-5. Add `defaultParameters()` to the system class, then register the class and its run options in `codesimpy/api/system_factory.py`.
+5. Add `defaultParameters(overrides=None)` to the system class and expose it through the backend service.
 6. Add a focused test under `codesimpy/tests/`.
 
 ### Add a component
