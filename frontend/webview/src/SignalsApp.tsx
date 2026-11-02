@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { flushSync } from 'react-dom';
 import {
   isInsideVsCode,
   onSimulationChunk,
@@ -12,8 +13,14 @@ import { Toolbar } from './components/Toolbar';
 import { TransientVoltagePanel } from './components/TransientVoltagePanel';
 import { WaveformPanel } from './components/WaveformPanel';
 import { mockSystem } from './model/mockSystem';
-import { mergeSimulationSignals } from './model/signalModel';
+import { SimulationSignalBuffer } from './model/signalModel';
 import type { SystemSnapshot } from './model/types';
+
+// Live plots are refreshed at most this often while a simulation streams.
+// The interval grows with the measured render cost (render ≤ ~20 % of the
+// time) so large systems stay responsive instead of re-rendering per chunk.
+const minimumFlushInterval = 100;
+const maximumFlushInterval = 1000;
 
 export function SignalsApp() {
   const [snapshot, setSnapshot] = useState<SystemSnapshot>(() => (
@@ -22,23 +29,65 @@ export function SignalsApp() {
   const [activeTab, setActiveTab] = useState<'time' | 'transient-voltage' | 'small-signal' | 'interaction'>('time');
 
   useEffect(() => {
-    const unsubscribeSnapshot = onSystemSnapshot(setSnapshot);
+    const buffer = new SimulationSignalBuffer();
+    let timer: number | undefined;
+    let interval = minimumFlushInterval;
+
+    const cancelFlush = () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+        timer = undefined;
+      }
+    };
+    const flush = () => {
+      timer = undefined;
+      if (document.hidden) {
+        // Nothing is painted while the panel is hidden; catch up when shown.
+        return;
+      }
+      const signals = buffer.take();
+      if (!signals) {
+        return;
+      }
+      const started = performance.now();
+      flushSync(() => setSnapshot((current) => ({ ...current, signals })));
+      const cost = performance.now() - started;
+      interval = Math.min(maximumFlushInterval, Math.max(minimumFlushInterval, cost * 4));
+    };
+    const scheduleFlush = () => {
+      if (timer === undefined) {
+        timer = window.setTimeout(flush, interval);
+      }
+    };
+    const onVisibilityChange = () => {
+      if (!document.hidden && buffer.pending) {
+        cancelFlush();
+        flush();
+      }
+    };
+
+    const unsubscribeSnapshot = onSystemSnapshot((next) => {
+      // Seed the buffer so later chunks extend the snapshot when reopening mid-run.
+      cancelFlush();
+      buffer.reset(next.signals);
+      setSnapshot(next);
+    });
     const unsubscribeStarted = onSimulationStarted(() => {
+      cancelFlush();
+      buffer.reset();
+      interval = minimumFlushInterval;
       setActiveTab('time');
       setSnapshot((current) => ({ ...current, signals: [] }));
     });
     const unsubscribeChunk = onSimulationChunk((chunk) => {
-      setSnapshot((current) => ({
-        ...current,
-        signals: mergeSimulationSignals(
-          current.signals,
-          chunk.signals,
-          chunk.sequence === 0,
-        ),
-      }));
+      buffer.append(chunk.signals, chunk.sequence === 0);
+      scheduleFlush();
     });
+    document.addEventListener('visibilitychange', onVisibilityChange);
     requestSystemSnapshot();
     return () => {
+      cancelFlush();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       unsubscribeSnapshot();
       unsubscribeStarted();
       unsubscribeChunk();

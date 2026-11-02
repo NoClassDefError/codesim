@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import type {
@@ -39,19 +39,66 @@ function eigenvalue(mode: SmallSignalMode): string {
   return `${formatNumber(mode.realPart)} ${sign} j${formatNumber(Math.abs(mode.imaginaryPart))}`;
 }
 
-function LatexExpression({ expression }: { expression: string }) {
-  const markup = useMemo(() => katex.renderToString(expression, {
+// Symbolic matrices of larger systems produce very large KaTeX output, and the
+// panel is re-mounted on every tab switch. Keep the last few renderings.
+const latexCache = new Map<string, string>();
+const latexCacheLimit = 12;
+
+function renderLatex(expression: string): string {
+  const cached = latexCache.get(expression);
+  if (cached !== undefined) {
+    latexCache.delete(expression);
+    latexCache.set(expression, cached);
+    return cached;
+  }
+  const markup = katex.renderToString(expression, {
     displayMode: true,
     throwOnError: false,
     strict: false,
     maxExpand: 10000,
-  }), [expression]);
+  });
+  latexCache.set(expression, markup);
+  if (latexCache.size > latexCacheLimit) {
+    latexCache.delete(latexCache.keys().next().value as string);
+  }
+  return markup;
+}
+
+function LatexExpression({ expression }: { expression: string }) {
+  const markup = useMemo(() => renderLatex(expression), [expression]);
 
   return (
     <div
       className="symbolic-equation-latex"
       dangerouslySetInnerHTML={{ __html: markup }}
     />
+  );
+}
+
+/** A <details> block that renders its body only once it has been opened. */
+function LazyDetails({
+  title,
+  initiallyOpen,
+  children,
+}: {
+  title: string;
+  initiallyOpen: boolean;
+  children: () => ReactNode;
+}) {
+  const [opened, setOpened] = useState(initiallyOpen);
+  return (
+    <details
+      className="symbolic-equation"
+      open={initiallyOpen}
+      onToggle={(event) => {
+        if (event.currentTarget.open) {
+          setOpened(true);
+        }
+      }}
+    >
+      <summary>{title}</summary>
+      {opened && children()}
+    </details>
   );
 }
 
@@ -89,12 +136,17 @@ function SymbolicExpressions({
       </p>
       <div className="symbolic-equations-list">
         {equations.map((equation) => (
-          <details key={equation.id} className="symbolic-equation" open={equation.open}>
-            <summary>{equation.title}</summary>
-            <div className="symbolic-equation-scroll">
-              <LatexExpression expression={equation.expression} />
-            </div>
-          </details>
+          <LazyDetails
+            key={equation.id}
+            title={equation.title}
+            initiallyOpen={equation.open}
+          >
+            {() => (
+              <div className="symbolic-equation-scroll">
+                <LatexExpression expression={equation.expression} />
+              </div>
+            )}
+          </LazyDetails>
         ))}
       </div>
     </section>

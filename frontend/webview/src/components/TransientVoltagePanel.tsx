@@ -10,6 +10,7 @@ import type {
   SystemSnapshot,
   TransientVoltageDescriptor,
 } from '../model/types';
+import { decimatedPath } from '../model/chartMath';
 
 type TraceMetric = 'magnitude' | 'real' | 'imaginary';
 type VisibleComponent = 'actual' | 'reconstructed' | 'qss' | 'firstOrder' | 'emt';
@@ -90,15 +91,21 @@ function formatNumber(value: number | null | undefined, digits = 5): string {
   return value.toFixed(digits).replace(/\.?0+$/, '');
 }
 
-function finiteExtent(values: number[]): [number, number] {
+function finiteExtent(...arrays: ReadonlyArray<readonly number[]>): [number, number] {
   let minimum = Number.POSITIVE_INFINITY;
   let maximum = Number.NEGATIVE_INFINITY;
-  values.forEach((value) => {
-    if (Number.isFinite(value)) {
-      minimum = Math.min(minimum, value);
-      maximum = Math.max(maximum, value);
+  for (const values of arrays) {
+    for (const value of values) {
+      if (Number.isFinite(value)) {
+        if (value < minimum) {
+          minimum = value;
+        }
+        if (value > maximum) {
+          maximum = value;
+        }
+      }
     }
-  });
+  }
   if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) {
     return [-1, 1];
   }
@@ -141,27 +148,19 @@ function nearestSample(time: number[], target: number): number {
   return low;
 }
 
-function pathFor(
-  time: number[],
-  values: number[],
-  x: (value: number) => number,
-  y: (value: number) => number,
-): string {
-  const step = Math.max(1, Math.ceil(time.length / 1400));
-  const indices = Array.from({ length: Math.ceil(time.length / step) }, (_, index) => index * step);
-  if (indices.at(-1) !== time.length - 1) {
-    indices.push(time.length - 1);
-  }
-  let drawing = false;
-  return indices.map((index) => {
-    if (!Number.isFinite(values[index])) {
-      drawing = false;
-      return '';
-    }
-    const command = drawing ? 'L' : 'M';
-    drawing = true;
-    return `${command} ${x(time[index])} ${y(values[index])}`;
-  }).filter(Boolean).join(' ');
+// Time slots per trace; each keeps up to four samples (first/min/max/last).
+const traceBuckets = 700;
+
+function linearScale(
+  domain: [number, number],
+  start: number,
+  length: number,
+  inverted = false,
+): (value: number) => number {
+  const span = domain[1] - domain[0];
+  return inverted
+    ? (value) => start + (1 - (value - domain[0]) / span) * length
+    : (value) => start + ((value - domain[0]) / span) * length;
 }
 
 function valueAt(
@@ -190,17 +189,32 @@ function VoltageChart({
   selectedIndex: number;
   onSelect: (index: number) => void;
 }) {
-  const series = componentMeta
-    .filter(({ key }) => visible.has(key))
-    .map((meta) => ({ ...meta, values: column(result.components[meta.key], metric, busIndex) }));
-  const [timeMinimum, timeMaximum] = finiteExtent(result.time_s);
-  const [valueMinimum, valueMaximum] = finiteExtent(series.flatMap((item) => item.values));
   const plotWidth = chartWidth - chartMargin.left - chartMargin.right;
   const plotHeight = chartHeight - chartMargin.top - chartMargin.bottom;
-  const x = (value: number) => chartMargin.left
-    + ((value - timeMinimum) / (timeMaximum - timeMinimum)) * plotWidth;
-  const y = (value: number) => chartMargin.top
-    + (1 - (value - valueMinimum) / (valueMaximum - valueMinimum)) * plotHeight;
+  // Traces only depend on the data and display options; dragging the cursor
+  // re-renders just the cursor instead of rebuilding every path.
+  const chart = useMemo(() => {
+    const series = componentMeta
+      .filter(({ key }) => visible.has(key))
+      .map((meta) => ({ ...meta, values: column(result.components[meta.key], metric, busIndex) }));
+    const timeRange = finiteExtent(result.time_s);
+    const valueRange = finiteExtent(...series.map((item) => item.values));
+    const x = linearScale(timeRange, chartMargin.left, plotWidth);
+    const y = linearScale(valueRange, chartMargin.top, plotHeight, true);
+    return {
+      series: series.map((item) => ({
+        ...item,
+        path: decimatedPath(result.time_s, item.values, x, y, traceBuckets),
+      })),
+      timeRange,
+      valueRange,
+      x,
+      y,
+    };
+  }, [busIndex, metric, plotHeight, plotWidth, result, visible]);
+  const { series, x, y } = chart;
+  const [timeMinimum, timeMaximum] = chart.timeRange;
+  const [valueMinimum, valueMaximum] = chart.valueRange;
   const ticks = Array.from({ length: 6 }, (_, index) => index / 5);
   const cursorIndex = Math.min(Math.max(selectedIndex, 0), result.time_s.length - 1);
   const cursorTime = result.time_s[cursorIndex];
@@ -258,7 +272,7 @@ function VoltageChart({
           <path
             key={item.key}
             className={`transient-trace transient-trace-${item.key}`}
-            d={pathFor(result.time_s, item.values, x, y)}
+            d={item.path}
             stroke={item.color}
             strokeDasharray={item.dash}
           />
@@ -294,16 +308,27 @@ function SlowStateChart({
   selectedIndex: number;
   onSelect: (index: number) => void;
 }) {
-  const [timeMinimum, timeMaximum] = finiteExtent(analysisTime);
-  const [valueMinimum, valueMaximum] = finiteExtent(
-    series.flatMap((item) => item.values),
-  );
   const plotWidth = chartWidth - stateChartMargin.left - stateChartMargin.right;
   const plotHeight = stateChartHeight - stateChartMargin.top - stateChartMargin.bottom;
-  const x = (value: number) => stateChartMargin.left
-    + ((value - timeMinimum) / (timeMaximum - timeMinimum)) * plotWidth;
-  const y = (value: number) => stateChartMargin.top
-    + (1 - (value - valueMinimum) / (valueMaximum - valueMinimum)) * plotHeight;
+  const chart = useMemo(() => {
+    const timeRange = finiteExtent(analysisTime);
+    const valueRange = finiteExtent(...series.map((item) => item.values));
+    const x = linearScale(timeRange, stateChartMargin.left, plotWidth);
+    const y = linearScale(valueRange, stateChartMargin.top, plotHeight, true);
+    return {
+      paths: new Map(series.map((item) => [
+        item.name,
+        decimatedPath(item.time, item.values, x, y, traceBuckets),
+      ])),
+      timeRange,
+      valueRange,
+      x,
+      y,
+    };
+  }, [analysisTime, plotHeight, plotWidth, series]);
+  const { x, y } = chart;
+  const [timeMinimum, timeMaximum] = chart.timeRange;
+  const [valueMinimum, valueMaximum] = chart.valueRange;
   const ticks = Array.from({ length: 6 }, (_, index) => index / 5);
   const cursorIndex = Math.min(Math.max(selectedIndex, 0), analysisTime.length - 1);
   const cursorTime = analysisTime[cursorIndex];
@@ -392,7 +417,7 @@ function SlowStateChart({
               <path
                 key={item.name}
                 className="transient-trace transient-state-trace"
-                d={pathFor(item.time, item.values, x, y)}
+                d={chart.paths.get(item.name)}
                 stroke={item.color}
               />
             ))}
@@ -518,20 +543,32 @@ export function TransientVoltagePanel({ snapshot }: { snapshot: SystemSnapshot }
   const safeIndex = result
     ? Math.min(selectedIndex, Math.max(0, result.time_s.length - 1))
     : 0;
-  const convergedCount = result?.qssConverged.filter(Boolean).length ?? 0;
-  const firstOrderCount = result?.firstOrderAvailable?.filter(Boolean).length
-    ?? result?.time_s.length
-    ?? 0;
-  const worstResidual = result
-    ? result.qssResidualNorm.reduce(
-      (maximum, value) => Number.isFinite(value) ? Math.max(maximum, value) : maximum,
-      0,
-    )
-    : 0;
-  const worstReconstruction = result
-    ? Math.max(...result.components.reconstructionError.magnitude.flat()
-      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value)), 0)
-    : 0;
+  // Summary figures depend only on the result, not on the scrubbed sample.
+  const diagnostics = useMemo(() => {
+    if (!result) {
+      return { convergedCount: 0, firstOrderCount: 0, worstResidual: 0, worstReconstruction: 0 };
+    }
+    let worstReconstruction = 0;
+    // A loop rather than Math.max(...values): spreading a large
+    // samples × buses matrix into arguments overflows the call stack.
+    for (const row of result.components.reconstructionError.magnitude) {
+      for (const value of row) {
+        if (typeof value === 'number' && Number.isFinite(value) && value > worstReconstruction) {
+          worstReconstruction = value;
+        }
+      }
+    }
+    return {
+      convergedCount: result.qssConverged.filter(Boolean).length,
+      firstOrderCount: result.firstOrderAvailable?.filter(Boolean).length ?? result.time_s.length,
+      worstResidual: result.qssResidualNorm.reduce(
+        (maximum, value) => Number.isFinite(value) ? Math.max(maximum, value) : maximum,
+        0,
+      ),
+      worstReconstruction,
+    };
+  }, [result]);
+  const { convergedCount, firstOrderCount, worstResidual, worstReconstruction } = diagnostics;
   const toggle = (key: VisibleComponent) => {
     setVisible((current) => {
       const next = new Set(current);

@@ -309,48 +309,108 @@ function opposite(side: PortSide): PortSide {
   return 'top';
 }
 
+/**
+ * Recompute automatic port sides and lanes for every edge.
+ *
+ * Runs whenever nodes change (every drag frame, every selection change), so
+ * edges whose routing is unchanged keep their object identity and the input
+ * array is returned as-is when nothing changed. React Flow then re-renders
+ * only the edges that actually moved, and setEdges bails out entirely when
+ * none did.
+ */
 export function orientFlowEdges(
   nodes: SystemFlowNode[],
   edges: SystemFlowEdge[],
 ): SystemFlowEdge[] {
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  return edges.map((edge, index) => {
-    const source = nodeById.get(edge.source);
-    const target = nodeById.get(edge.target);
-    if (!source || !target) {
-      return edge;
-    }
-    const sourceCenter = centerOf(source);
-    const targetCenter = centerOf(target);
-    const dx = targetCenter.x - sourceCenter.x;
-    const dy = targetCenter.y - sourceCenter.y;
-    const horizontal = Math.abs(dx) >= Math.abs(dy);
-    const automaticSourceSide: PortSide = horizontal
-      ? (dx >= 0 ? 'right' : 'left')
-      : (dy >= 0 ? 'bottom' : 'top');
-    const sourceSide = edge.data?.sourceSideLocked && edge.data.sourceSide
-      ? edge.data.sourceSide
-      : automaticSourceSide;
-    const targetSide = edge.data?.targetSideLocked && edge.data.targetSide
-      ? edge.data.targetSide
-      : opposite(automaticSourceSide);
-    const routeHorizontal = ['left', 'right'].includes(sourceSide) &&
-      ['left', 'right'].includes(targetSide);
-    const laneOffset = ((index % 5) - 2) * 7;
-    return {
-      ...edge,
-      sourceHandle: `source-${sourceSide}`,
-      targetHandle: `target-${targetSide}`,
-      data: {
-        label: edge.data?.label ?? '',
-        ...edge.data,
-        sourceSide,
-        targetSide,
-        routeAxis: routeHorizontal ? 'horizontal' : 'vertical',
-        laneOffset,
-      },
-    };
+  let changed = false;
+  const oriented = edges.map((edge, index) => {
+    const next = orientFlowEdge(edge, index, nodeById);
+    changed ||= next !== edge;
+    return next;
   });
+  return changed ? oriented : edges;
+}
+
+function orientFlowEdge(
+  edge: SystemFlowEdge,
+  index: number,
+  nodeById: Map<string, SystemFlowNode>,
+): SystemFlowEdge {
+  const source = nodeById.get(edge.source);
+  const target = nodeById.get(edge.target);
+  if (!source || !target) {
+    return edge;
+  }
+  const sourceCenter = centerOf(source);
+  const targetCenter = centerOf(target);
+  const dx = targetCenter.x - sourceCenter.x;
+  const dy = targetCenter.y - sourceCenter.y;
+  const horizontal = Math.abs(dx) >= Math.abs(dy);
+  const automaticSourceSide: PortSide = horizontal
+    ? (dx >= 0 ? 'right' : 'left')
+    : (dy >= 0 ? 'bottom' : 'top');
+  const sourceSide = edge.data?.sourceSideLocked && edge.data.sourceSide
+    ? edge.data.sourceSide
+    : automaticSourceSide;
+  const targetSide = edge.data?.targetSideLocked && edge.data.targetSide
+    ? edge.data.targetSide
+    : opposite(automaticSourceSide);
+  const routeHorizontal = ['left', 'right'].includes(sourceSide) &&
+    ['left', 'right'].includes(targetSide);
+  const routeAxis = routeHorizontal ? 'horizontal' : 'vertical';
+  const laneOffset = ((index % 5) - 2) * 7;
+  const sourceHandle = `source-${sourceSide}`;
+  const targetHandle = `target-${targetSide}`;
+  const data = edge.data;
+  if (
+    data?.label !== undefined &&
+    edge.sourceHandle === sourceHandle &&
+    edge.targetHandle === targetHandle &&
+    data.sourceSide === sourceSide &&
+    data.targetSide === targetSide &&
+    data.routeAxis === routeAxis &&
+    data.laneOffset === laneOffset
+  ) {
+    return edge;
+  }
+  return {
+    ...edge,
+    sourceHandle,
+    targetHandle,
+    data: {
+      label: data?.label ?? '',
+      ...data,
+      sourceSide,
+      targetSide,
+      routeAxis,
+      laneOffset,
+    },
+  };
+}
+
+/**
+ * Everything the topology canvas draws. Snapshots that differ only in
+ * results (signals, eigenvalues, ...) or parameter values share a signature,
+ * so the canvas can keep its node positions and selection for them.
+ */
+export function topologySignature(snapshot: SystemSnapshot): string {
+  return JSON.stringify([
+    snapshot.system.id,
+    snapshot.components.map((component) => [
+      component.id,
+      component.name,
+      component.kind,
+      component.icon,
+    ]),
+    snapshot.connections.map((connection) => [
+      connection.id,
+      connection.name,
+      connection.source,
+      connection.target,
+    ]),
+    snapshot.layout ?? null,
+  ]);
 }
 
 export function snapshotToFlow(

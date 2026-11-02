@@ -13,6 +13,28 @@ const defaultSystem = 'VSGSMIBSystem';
 const pythonExtensionId = 'ms-python.python';
 
 type AnalysisKind = 'simulation' | 'smallSignal' | 'interaction' | 'transientVoltage';
+// 'viewer' is the topology sidebar, 'signals' the results panel.
+type WebviewRole = 'viewer' | 'signals';
+type SnapshotReason = 'load' | 'analysis' | 'request';
+
+// Results the topology viewer never reads. Simulation traces alone can be
+// hundreds of MB of JSON for large systems, so they are not sent to it.
+const viewerOmittedSnapshotFields = [
+	'signals',
+	'simulationData',
+	'smallSignal',
+	'interactionAnalysis',
+	'transientVoltage',
+];
+
+function appendInPlace(target: unknown[], source: unknown): void {
+	if (!Array.isArray(source)) {
+		return;
+	}
+	for (const value of source) {
+		target.push(value);
+	}
+}
 
 interface SourceReference {
 	file: string;
@@ -82,7 +104,7 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 class CodeSimHost {
-	private readonly webviews = new Set<vscode.Webview>();
+	private readonly webviews = new Map<vscode.Webview, WebviewRole>();
 	private readonly output: vscode.OutputChannel;
 	private readonly backendStatus: vscode.StatusBarItem;
 	private currentSnapshotUri: vscode.Uri | undefined;
@@ -135,8 +157,8 @@ class CodeSimHost {
 		};
 	}
 
-	registerWebview(webview: vscode.Webview): () => void {
-		this.webviews.add(webview);
+	registerWebview(webview: vscode.Webview, role: WebviewRole): () => void {
+		this.webviews.set(webview, role);
 		return () => this.webviews.delete(webview);
 	}
 
@@ -180,7 +202,7 @@ class CodeSimHost {
 		);
 	}
 
-	async handleMessage(message: WebviewMessage): Promise<void> {
+	async handleMessage(message: WebviewMessage, source?: vscode.Webview): Promise<void> {
 		switch (message.type) {
 			case 'requestBackendInfo':
 				await this.sendBackendInfo();
@@ -192,8 +214,10 @@ class CodeSimHost {
 				await this.stopBackend();
 				break;
 			case 'requestSystemSnapshot':
+				// Answer only the webview that asked: opening the Signals panel
+				// must not re-send (and re-lay out) the snapshot in the viewer.
 				if (this.currentSnapshot) {
-					await this.postToWebviews({ type: 'systemSnapshot', snapshot: this.currentSnapshot });
+					await this.postSnapshot(this.currentSnapshot, 'request', source);
 				}
 				break;
 			case 'loadSystemDescriptor':
@@ -401,7 +425,8 @@ class CodeSimHost {
 			if (typeof result.snapshotFile === 'string') {
 				this.currentSnapshotUri = vscode.Uri.file(result.snapshotFile);
 			}
-			if (!(await this.acceptSnapshot(result.descriptor))) {
+			const reason: SnapshotReason = action === 'descriptor' ? 'load' : 'analysis';
+			if (!(await this.acceptSnapshot(result.descriptor, reason))) {
 				throw new Error('Python returned an invalid System descriptor.');
 			}
 			this.output.appendLine('=== completed ===');
@@ -541,21 +566,16 @@ class CodeSimHost {
 				(this.currentSnapshot as Record<string, unknown>).signals = [];
 			}
 			if (message.type === 'simulation.chunk' && this.isSystemSnapshot(this.currentSnapshot)) {
-				const snapshot = this.currentSnapshot as Record<string, unknown>;
-				const current = new Map(
-					(snapshot.signals as Array<Record<string, unknown>>).map((signal) => [signal.id, signal]),
+				this.appendSimulationChunk(
+					this.currentSnapshot as Record<string, unknown>,
+					message.signals,
 				);
-				for (const incoming of message.signals as Array<Record<string, unknown>>) {
-					const existing = current.get(incoming.id);
-					current.set(incoming.id, existing ? {
-						...existing,
-						time: [...existing.time as number[], ...incoming.time as number[]],
-						values: [...existing.values as number[], ...incoming.values as number[]],
-					} : incoming);
-				}
-				snapshot.signals = [...current.values()];
 			}
-			await this.postToWebviews(message);
+			// Streaming events only matter to the Signals panel.
+			await this.postToWebviews(
+				message,
+				message.type.startsWith('simulation.') ? 'signals' : undefined,
+			);
 			return;
 		}
 		if (typeof message.id !== 'number') {
@@ -588,14 +608,77 @@ class CodeSimHost {
 		}, 500).unref();
 	}
 
-	private async postToWebviews(message: unknown): Promise<void> {
-		await Promise.all(Array.from(
-			this.webviews,
-			(webview) => webview.postMessage(message),
-		));
+	/**
+	 * Fold one streamed chunk into the cached snapshot.
+	 *
+	 * Each trace keeps one array that grows in place; rebuilding the arrays
+	 * per chunk ([...old, ...chunk]) made a run with N samples cost O(N²).
+	 */
+	private appendSimulationChunk(snapshot: Record<string, unknown>, incoming: unknown): void {
+		if (!Array.isArray(incoming)) {
+			return;
+		}
+		const signals = snapshot.signals as Array<Record<string, unknown>>;
+		const byId = new Map(signals.map((signal) => [signal.id, signal]));
+		for (const signal of incoming as Array<Record<string, unknown>>) {
+			const existing = byId.get(signal.id);
+			if (existing && Array.isArray(existing.time) && Array.isArray(existing.values)) {
+				appendInPlace(existing.time, signal.time);
+				appendInPlace(existing.values, signal.values);
+			} else if (!existing) {
+				// Copy so the cached trace never aliases the message being posted.
+				const copy = {
+					...signal,
+					time: Array.isArray(signal.time) ? [...signal.time] : [],
+					values: Array.isArray(signal.values) ? [...signal.values] : [],
+				};
+				signals.push(copy);
+				byId.set(signal.id, copy);
+			}
+		}
 	}
 
-	private async acceptSnapshot(value: unknown): Promise<boolean> {
+	private async postToWebviews(message: unknown, role?: WebviewRole): Promise<void> {
+		await Promise.all(Array.from(this.webviews)
+			.filter(([, webviewRole]) => !role || webviewRole === role)
+			.map(([webview]) => webview.postMessage(message)));
+	}
+
+	/** Send a snapshot; the topology viewer gets it without analysis results. */
+	private async postSnapshot(
+		snapshot: unknown,
+		reason: SnapshotReason,
+		only?: vscode.Webview,
+	): Promise<void> {
+		let viewerMessage: unknown;
+		await Promise.all(Array.from(this.webviews)
+			.filter(([webview]) => !only || webview === only)
+			.map(([webview, role]) => {
+				if (role === 'viewer') {
+					viewerMessage ??= {
+						type: 'systemSnapshot',
+						reason,
+						snapshot: this.viewerSnapshot(snapshot),
+					};
+					return webview.postMessage(viewerMessage);
+				}
+				return webview.postMessage({ type: 'systemSnapshot', reason, snapshot });
+			}));
+	}
+
+	private viewerSnapshot(snapshot: unknown): unknown {
+		if (!snapshot || typeof snapshot !== 'object') {
+			return snapshot;
+		}
+		const trimmed: Record<string, unknown> = { ...snapshot as Record<string, unknown> };
+		for (const field of viewerOmittedSnapshotFields) {
+			delete trimmed[field];
+		}
+		trimmed.signals = [];
+		return trimmed;
+	}
+
+	private async acceptSnapshot(value: unknown, reason: SnapshotReason): Promise<boolean> {
 		try {
 			const snapshot = this.unwrapSnapshot(value);
 			if (!this.isSystemSnapshot(snapshot)) {
@@ -604,7 +687,7 @@ class CodeSimHost {
 				);
 			}
 			this.currentSnapshot = snapshot;
-			await this.postToWebviews({ type: 'systemSnapshot', snapshot });
+			await this.postSnapshot(snapshot, reason);
 			return true;
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
@@ -710,9 +793,9 @@ class CodeSimViewerProvider implements vscode.WebviewViewProvider {
 			localResourceRoots: [distUri],
 		};
 		view.webview.html = getHtml(this.context, view.webview, 'viewer');
-		const unregister = this.host.registerWebview(view.webview);
+		const unregister = this.host.registerWebview(view.webview, 'viewer');
 		const messageSubscription = view.webview.onDidReceiveMessage(
-			(message: WebviewMessage) => this.host.handleMessage(message),
+			(message: WebviewMessage) => this.host.handleMessage(message, view.webview),
 		);
 		view.onDidDispose(() => {
 			unregister();
@@ -732,10 +815,10 @@ class SignalsPanel {
 		host: CodeSimHost,
 	) {
 		this.panel.webview.html = getHtml(context, this.panel.webview, 'signals');
-		this.unregisterWebview = host.registerWebview(this.panel.webview);
+		this.unregisterWebview = host.registerWebview(this.panel.webview, 'signals');
 		this.panel.onDidDispose(() => this.dispose(), undefined, this.disposables);
 		this.panel.webview.onDidReceiveMessage(
-			(message: WebviewMessage) => host.handleMessage(message),
+			(message: WebviewMessage) => host.handleMessage(message, this.panel.webview),
 			undefined,
 			this.disposables,
 		);

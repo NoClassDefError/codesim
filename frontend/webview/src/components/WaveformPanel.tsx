@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SignalSidebar } from './SignalSidebar';
 import type {
   DerivedSignalDefinition,
@@ -7,10 +7,18 @@ import type {
   SystemSnapshot,
 } from '../model/types';
 import { defaultPlots, type PlotDefinition } from '../model/signalModel';
+import {
+  arrayStats,
+  decimateIndices,
+  visibleIndexRange,
+  type NumericRange,
+} from '../model/chartMath';
 
 const width = 1000;
 const height = 224;
 const margin = { left: 84, right: 84, top: 20, bottom: 42 };
+// Time slots per trace; each keeps up to four samples (first/min/max/last).
+const plotBuckets = 600;
 
 interface ChartSeries {
   signal: SignalDescriptor;
@@ -20,27 +28,29 @@ interface ChartSeries {
 }
 
 interface PlotPanelProps {
+  plotId: string;
   active: boolean;
   title: string;
   yLabel: string;
   series: ChartSeries[];
-  xRange: [number, number];
+  xRange: NumericRange;
   rightSeries?: ChartSeries[];
   rightLabel?: string;
   selectedSignalId: string;
-  onSelect: () => void;
-  onClose: () => void;
-  onRemoveSignal: (signalId: string) => void;
+  onSelect: (plotId: string) => void;
+  onClose: (plotId: string) => void;
+  onRemoveSignal: (plotId: string, signalId: string) => void;
 }
 
-function finiteExtent(values: number[]): [number, number] {
+const noSeries: ChartSeries[] = [];
+
+function finiteExtent(series: ChartSeries[]): NumericRange {
   let minimum = Number.POSITIVE_INFINITY;
   let maximum = Number.NEGATIVE_INFINITY;
-  for (const value of values) {
-    if (Number.isFinite(value)) {
-      minimum = Math.min(minimum, value);
-      maximum = Math.max(maximum, value);
-    }
+  for (const item of series) {
+    const stats = arrayStats(item.signal.values);
+    minimum = Math.min(minimum, stats.minimum);
+    maximum = Math.max(maximum, stats.maximum);
   }
   if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) {
     return [0, 1];
@@ -57,16 +67,13 @@ function finiteExtent(values: number[]): [number, number] {
   return [minimum, maximum];
 }
 
-function timeExtent(signals: SignalDescriptor[]): [number, number] {
+function timeExtent(signals: SignalDescriptor[]): NumericRange {
   let minimum = Number.POSITIVE_INFINITY;
   let maximum = Number.NEGATIVE_INFINITY;
   for (const signal of signals) {
-    for (const value of signal.time) {
-      if (Number.isFinite(value)) {
-        minimum = Math.min(minimum, value);
-        maximum = Math.max(maximum, value);
-      }
-    }
+    const stats = arrayStats(signal.time);
+    minimum = Math.min(minimum, stats.minimum);
+    maximum = Math.max(maximum, stats.maximum);
   }
   return Number.isFinite(minimum) && Number.isFinite(maximum) && minimum !== maximum
     ? [minimum, maximum]
@@ -106,63 +113,58 @@ function tickLabel(value: number, interval?: number): string {
   return value.toFixed(magnitude < 10 ? 2 : 1).replace(/\.00$/, '');
 }
 
+interface PointsCacheEntry {
+  time: readonly number[];
+  key: string;
+  points: string;
+}
+
+// One entry per trace: re-rendering a plot whose data and axes did not
+// change (selection, legend clicks, other plots updating) reuses the string.
+const pointsCache = new WeakMap<readonly number[], PointsCacheEntry>();
+
 function pointsFor(
   signal: SignalDescriptor,
-  xRange: [number, number],
-  yRange: [number, number],
+  xRange: NumericRange,
+  yRange: NumericRange,
 ): string {
   const count = Math.min(signal.time.length, signal.values.length);
   if (count === 0) {
     return '';
   }
+  const key = `${count}|${xRange[0]}|${xRange[1]}|${yRange[0]}|${yRange[1]}`;
+  const cached = pointsCache.get(signal.values);
+  if (cached && cached.time === signal.time && cached.key === key) {
+    return cached.points;
+  }
+
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
   const xSpan = Math.max(xRange[1] - xRange[0], 1e-12);
   const ySpan = Math.max(yRange[1] - yRange[0], 1e-12);
-  let firstVisible = -1;
-  let lastVisible = -1;
-  for (let index = 0; index < count; index += 1) {
-    if (
-      Number.isFinite(signal.time[index]) &&
-      Number.isFinite(signal.values[index]) &&
-      signal.time[index] >= xRange[0] &&
-      signal.time[index] <= xRange[1]
-    ) {
-      firstVisible = firstVisible < 0 ? index : firstVisible;
-      lastVisible = index;
+  const [start, end] = visibleIndexRange(signal.time, count, xRange[0], xRange[1]);
+  const parts: string[] = [];
+  for (const index of decimateIndices(signal.time, signal.values, start, end, plotBuckets)) {
+    if (index < 0) {
+      continue;
     }
+    const x = margin.left + ((signal.time[index] - xRange[0]) / xSpan) * plotWidth;
+    const y = margin.top + (1 - (signal.values[index] - yRange[0]) / ySpan) * plotHeight;
+    parts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
   }
-  if (firstVisible < 0) {
-    return '';
-  }
-
-  const step = Math.max(1, Math.ceil((lastVisible - firstVisible + 1) / 900));
-  const indices: number[] = [];
-  for (let index = firstVisible; index <= lastVisible; index += step) {
-    if (Number.isFinite(signal.time[index]) && Number.isFinite(signal.values[index])) {
-      indices.push(index);
-    }
-  }
-  if (indices.at(-1) !== lastVisible) {
-    indices.push(lastVisible);
-  }
-
-  return indices
-    .map((index) => {
-      const x = margin.left + ((signal.time[index] - xRange[0]) / xSpan) * plotWidth;
-      const y = margin.top + (1 - (signal.values[index] - yRange[0]) / ySpan) * plotHeight;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(' ');
+  const points = parts.join(' ');
+  pointsCache.set(signal.values, { time: signal.time, key, points });
+  return points;
 }
 
-function PlotPanel({
+const PlotPanel = memo(function PlotPanel({
+  plotId,
   active,
   title,
   yLabel,
   series,
   xRange,
-  rightSeries = [],
+  rightSeries = noSeries,
   rightLabel,
   selectedSignalId,
   onSelect,
@@ -170,8 +172,8 @@ function PlotPanel({
   onRemoveSignal,
 }: PlotPanelProps) {
   const allSeries = [...series, ...rightSeries];
-  const leftRange = finiteExtent(series.flatMap((item) => item.signal.values));
-  const rightRange = finiteExtent(rightSeries.flatMap((item) => item.signal.values));
+  const leftRange = finiteExtent(series);
+  const rightRange = finiteExtent(rightSeries);
   const xTicks = Array.from({ length: 5 }, (_, index) =>
     xRange[0] + ((xRange[1] - xRange[0]) * index) / 4,
   );
@@ -188,7 +190,7 @@ function PlotPanel({
   return (
     <section
       className={active ? 'plot-card active' : 'plot-card'}
-      onClick={onSelect}
+      onClick={() => onSelect(plotId)}
     >
       <div className="plot-heading">
         <div className="plot-title">
@@ -198,7 +200,7 @@ function PlotPanel({
             className="plot-close"
             onClick={(event) => {
               event.stopPropagation();
-              onClose();
+              onClose(plotId);
             }}
             title={`Close ${title}`}
             aria-label={`Close ${title}`}
@@ -214,7 +216,7 @@ function PlotPanel({
               className={item.signal.id === selectedSignalId ? 'selected' : ''}
               onClick={(event) => {
                 event.stopPropagation();
-                onRemoveSignal(item.signal.id);
+                onRemoveSignal(plotId, item.signal.id);
               }}
               title={`Remove ${item.label} from ${title}`}
             >
@@ -358,7 +360,7 @@ function PlotPanel({
       )}
     </section>
   );
-}
+});
 
 function asSeries(
   signals: SignalDescriptor[],
@@ -419,7 +421,7 @@ export function WaveformPanel({ snapshot }: Props) {
         category: 'output',
         label: definition.label,
         unit,
-        time: left.time.slice(0, count),
+        time: count === left.time.length ? left.time : left.time.slice(0, count),
         values,
       };
       signals.push(signal);
@@ -428,11 +430,17 @@ export function WaveformPanel({ snapshot }: Props) {
     return signals;
   }, [derivedDefinitions, snapshot.signals, snapshot.system.id]);
   const fullTimeRange = useMemo(() => timeExtent(allSignals), [allSignals]);
-  const [visibleTimeRange, setVisibleTimeRange] = useState<[number, number]>(fullTimeRange);
-
-  useEffect(() => {
-    setVisibleTimeRange(fullTimeRange);
-  }, [fullTimeRange]);
+  // null follows the full range, so a streaming run keeps growing on screen
+  // without a state update (and an extra render) for every flush.
+  const [zoomWindow, setZoomWindow] = useState<NumericRange | null>(null);
+  const visibleTimeRange = useMemo<NumericRange>(() => {
+    if (!zoomWindow) {
+      return fullTimeRange;
+    }
+    const start = Math.max(zoomWindow[0], fullTimeRange[0]);
+    const end = Math.min(zoomWindow[1], fullTimeRange[1]);
+    return start < end ? [start, end] : fullTimeRange;
+  }, [fullTimeRange, zoomWindow]);
 
   useEffect(() => {
     if (snapshot.system.id !== layoutSystemId) {
@@ -441,11 +449,13 @@ export function WaveformPanel({ snapshot }: Props) {
       setSelectedPlotId(next[0]?.id ?? '');
       setSelectedSignalId('');
       setDerivedDefinitions([]);
+      setZoomWindow(null);
       setLayoutSystemId(snapshot.system.id);
       setLayoutInitialized(snapshot.signals.length > 0);
       calculationCounter.current = 1;
     } else if (snapshot.signals.length === 0) {
       setLayoutInitialized(false);
+      setZoomWindow(null);
     } else if (!layoutInitialized && snapshot.signals.length > 0) {
       const next = defaultPlots(snapshot.signals);
       setPlots(next);
@@ -458,8 +468,42 @@ export function WaveformPanel({ snapshot }: Props) {
     () => new Map(allSignals.map((signal) => [signal.id, signal])),
     [allSignals],
   );
-  const selectedPlot = plots.find((plot) => plot.id === selectedPlotId);
-  const assignedSignalIds = new Set(selectedPlot?.signalIds ?? []);
+  // The sidebar only lists ids, labels, units and owners. Keep one array for
+  // as long as those are unchanged so the list is not re-rendered for every
+  // streamed flush (the descriptor objects change, the catalog does not).
+  const signalCatalogKey = allSignals
+    .map((signal) => [
+      signal.id,
+      signal.label,
+      signal.unit,
+      signal.ownerKind ?? '',
+      signal.ownerId ?? signal.componentId ?? '',
+    ].join('\u0001'))
+    .join('\u0002');
+  const signalCatalog = useMemo(() => allSignals, [signalCatalogKey]);
+  const catalogById = useMemo(
+    () => new Map(signalCatalog.map((signal) => [signal.id, signal])),
+    [signalCatalog],
+  );
+  // Closing the selected plot falls back to the first remaining plot.
+  const selectedPlot = plots.find((plot) => plot.id === selectedPlotId) ?? plots[0];
+  const activePlotId = selectedPlot?.id ?? '';
+  const assignedSignalIds = useMemo(
+    () => new Set(selectedPlot?.signalIds ?? []),
+    [selectedPlot],
+  );
+
+  const plotViews = useMemo(() => plots.map((plot) => {
+    const plotSignals = plot.signalIds
+      .map((id) => signalsById.get(id))
+      .filter((signal): signal is SignalDescriptor => Boolean(signal));
+    const units = new Set(plotSignals.map((signal) => signal.unit).filter(Boolean));
+    return {
+      plot,
+      yLabel: units.size === 1 ? `Value (${[...units][0]})` : 'Value',
+      series: asSeries(plotSignals, (signal) => signal.label),
+    };
+  }), [plots, signalsById]);
 
   const addPlot = () => {
     const id = `plot-custom-${plotCounter.current}`;
@@ -469,17 +513,13 @@ export function WaveformPanel({ snapshot }: Props) {
     setSelectedPlotId(id);
   };
 
-  const closePlot = (plotId: string) => {
-    const next = plots.filter((plot) => plot.id !== plotId);
-    setPlots(next);
-    if (selectedPlotId === plotId) {
-      setSelectedPlotId(next[0]?.id ?? '');
-    }
-  };
+  const closePlot = useCallback((plotId: string) => {
+    setPlots((current) => current.filter((plot) => plot.id !== plotId));
+  }, []);
 
-  const addSignal = (signal: SignalDescriptor) => {
+  const addSignal = useCallback((signal: SignalDescriptor) => {
     setSelectedSignalId(signal.id);
-    if (!selectedPlot) {
+    if (!activePlotId) {
       const id = `plot-custom-${plotCounter.current}`;
       plotCounter.current += 1;
       setPlots((current) => [...current, { id, title: 'New plot', signalIds: [signal.id] }]);
@@ -487,30 +527,28 @@ export function WaveformPanel({ snapshot }: Props) {
       return;
     }
     setPlots((current) => current.map((plot) =>
-      plot.id === selectedPlot.id && !plot.signalIds.includes(signal.id)
+      plot.id === activePlotId && !plot.signalIds.includes(signal.id)
         ? { ...plot, signalIds: [...plot.signalIds, signal.id] }
         : plot,
     ));
-  };
+  }, [activePlotId]);
 
-  const removeSignal = (plotId: string, signalId: string) => {
+  const removeSignal = useCallback((plotId: string, signalId: string) => {
     setPlots((current) => current.map((plot) =>
       plot.id === plotId
         ? { ...plot, signalIds: plot.signalIds.filter((id) => id !== signalId) }
         : plot,
     ));
-    if (selectedSignalId === signalId) {
-      setSelectedSignalId('');
-    }
-  };
+    setSelectedSignalId((current) => (current === signalId ? '' : current));
+  }, []);
 
-  const calculateSignal = (
+  const calculateSignal = useCallback((
     leftId: string,
     rightId: string,
     operation: SignalOperation,
   ) => {
-    const left = signalsById.get(leftId);
-    const right = signalsById.get(rightId);
+    const left = catalogById.get(leftId);
+    const right = catalogById.get(rightId);
     if (!left || !right) {
       return;
     }
@@ -528,7 +566,7 @@ export function WaveformPanel({ snapshot }: Props) {
       label,
     }]);
     setSelectedSignalId(id);
-    if (!selectedPlot) {
+    if (!activePlotId) {
       const plotId = `plot-custom-${plotCounter.current}`;
       plotCounter.current += 1;
       setPlots((current) => [...current, { id: plotId, title: 'New plot', signalIds: [id] }]);
@@ -536,11 +574,11 @@ export function WaveformPanel({ snapshot }: Props) {
       return;
     }
     setPlots((current) => current.map((plot) =>
-      plot.id === selectedPlot.id
+      plot.id === activePlotId
         ? { ...plot, signalIds: [...plot.signalIds, id] }
         : plot,
     ));
-  };
+  }, [activePlotId, catalogById]);
 
   const fullSpan = fullTimeRange[1] - fullTimeRange[0];
   const visibleSpan = visibleTimeRange[1] - visibleTimeRange[0];
@@ -550,21 +588,24 @@ export function WaveformPanel({ snapshot }: Props) {
     : 0;
 
   const zoomTime = (scale: number) => {
-    setVisibleTimeRange(([start, end]) => {
-      const minimumSpan = Math.max(fullSpan / 500, Number.EPSILON);
-      const nextSpan = Math.min(fullSpan, Math.max(minimumSpan, (end - start) * scale));
-      const center = (start + end) / 2;
-      const nextStart = Math.min(
-        fullTimeRange[1] - nextSpan,
-        Math.max(fullTimeRange[0], center - nextSpan / 2),
-      );
-      return [nextStart, nextStart + nextSpan];
-    });
+    const [start, end] = visibleTimeRange;
+    const minimumSpan = Math.max(fullSpan / 500, Number.EPSILON);
+    const nextSpan = Math.min(fullSpan, Math.max(minimumSpan, (end - start) * scale));
+    if (nextSpan >= fullSpan) {
+      setZoomWindow(null);
+      return;
+    }
+    const center = (start + end) / 2;
+    const nextStart = Math.min(
+      fullTimeRange[1] - nextSpan,
+      Math.max(fullTimeRange[0], center - nextSpan / 2),
+    );
+    setZoomWindow([nextStart, nextStart + nextSpan]);
   };
 
   const panTime = (position: number) => {
     const start = fullTimeRange[0] + (availablePan * position) / 1000;
-    setVisibleTimeRange([start, start + visibleSpan]);
+    setZoomWindow([start, start + visibleSpan]);
   };
 
   return (
@@ -597,7 +638,7 @@ export function WaveformPanel({ snapshot }: Props) {
             </button>
             <button
               type="button"
-              onClick={() => setVisibleTimeRange(fullTimeRange)}
+              onClick={() => setZoomWindow(null)}
               disabled={visibleSpan >= fullSpan}
             >
               Reset
@@ -625,31 +666,28 @@ export function WaveformPanel({ snapshot }: Props) {
               <button type="button" onClick={addPlot}>Create plot</button>
             </div>
           )}
-          {plots.map((plot) => {
-            const plotSignals = plot.signalIds
-              .map((id) => signalsById.get(id))
-              .filter((signal): signal is SignalDescriptor => Boolean(signal));
-            const units = new Set(plotSignals.map((signal) => signal.unit).filter(Boolean));
-            const yLabel = units.size === 1 ? `Value (${[...units][0]})` : 'Value';
-            return (
-              <PlotPanel
-                key={plot.id}
-                active={plot.id === selectedPlotId}
-                title={plot.title}
-                yLabel={yLabel}
-                series={asSeries(plotSignals, (signal) => signal.label)}
-                xRange={visibleTimeRange}
-                selectedSignalId={selectedSignalId}
-                onSelect={() => setSelectedPlotId(plot.id)}
-                onClose={() => closePlot(plot.id)}
-                onRemoveSignal={(signalId) => removeSignal(plot.id, signalId)}
-              />
-            );
-          })}
+          {plotViews.map(({ plot, yLabel, series }) => (
+            <PlotPanel
+              key={plot.id}
+              plotId={plot.id}
+              active={plot.id === activePlotId}
+              title={plot.title}
+              yLabel={yLabel}
+              series={series}
+              xRange={visibleTimeRange}
+              selectedSignalId={selectedSignalId}
+              onSelect={setSelectedPlotId}
+              onClose={closePlot}
+              onRemoveSignal={removeSignal}
+            />
+          ))}
         </div>
       </section>
       <SignalSidebar
-        snapshot={{ ...snapshot, signals: allSignals }}
+        systemName={snapshot.system.name}
+        components={snapshot.components}
+        connections={snapshot.connections}
+        signals={signalCatalog}
         selectedSignalId={selectedSignalId}
         assignedSignalIds={assignedSignalIds}
         targetLabel={selectedPlot?.title ?? 'a new plot'}

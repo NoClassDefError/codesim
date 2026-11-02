@@ -94,12 +94,21 @@ export function saveLayout(layout: SnapshotLayout): void {
   vscode?.postMessage({ type: 'saveLayout', layout });
 }
 
+/**
+ * Why the host sent a snapshot: 'load' after a model (re)load, 'analysis'
+ * after an analysis finished, 'request' in reply to requestSystemSnapshot.
+ */
+export type SnapshotReason = 'load' | 'analysis' | 'request';
+
 export function onSystemSnapshot(
-  listener: (snapshot: SystemSnapshot) => void,
+  listener: (snapshot: SystemSnapshot, reason: SnapshotReason) => void,
 ): () => void {
   const handler = (event: MessageEvent) => {
     if (event.data?.type === 'systemSnapshot') {
-      listener(event.data.snapshot as SystemSnapshot);
+      listener(
+        event.data.snapshot as SystemSnapshot,
+        (event.data.reason as SnapshotReason | undefined) ?? 'load',
+      );
     }
   };
 

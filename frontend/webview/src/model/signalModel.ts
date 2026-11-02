@@ -75,21 +75,62 @@ export function defaultPlots(signals: SignalDescriptor[]): PlotDefinition[] {
   ];
 }
 
-export function mergeSimulationSignals(
-  current: SignalDescriptor[],
-  incoming: SignalDescriptor[],
-  reset: boolean,
-): SignalDescriptor[] {
-  const signals = new Map(
-    (reset ? [] : current).map((signal) => [signal.id, signal]),
-  );
-  for (const signal of incoming) {
-    const existing = signals.get(signal.id);
-    signals.set(signal.id, existing ? {
-      ...existing,
-      time: [...existing.time, ...signal.time],
-      values: [...existing.values, ...signal.values],
-    } : signal);
+function appendInPlace(target: number[], source: readonly number[]): void {
+  for (let index = 0; index < source.length; index += 1) {
+    target.push(source[index]);
   }
-  return [...signals.values()];
+}
+
+/**
+ * Accumulates streamed simulation chunks.
+ *
+ * Copying every trace on every chunk ([...old, ...chunk]) makes a run with N
+ * samples cost O(N²) and allocates a fresh copy of every array per chunk.
+ * Here each trace owns one array that grows in place, so a chunk costs only
+ * its own length. React state receives new descriptor objects on each flush
+ * (so memoized views notice the change) that share those growing arrays.
+ */
+export class SimulationSignalBuffer {
+  private signals = new Map<string, SignalDescriptor>();
+  private dirty = false;
+
+  reset(initial: readonly SignalDescriptor[] = []): void {
+    this.signals = new Map();
+    this.append(initial, false);
+    // A supplied snapshot is already displayed; only later chunks need a flush.
+    this.dirty = false;
+  }
+
+  append(incoming: readonly SignalDescriptor[], reset: boolean): void {
+    if (reset) {
+      this.signals = new Map();
+    }
+    for (const signal of incoming) {
+      const existing = this.signals.get(signal.id);
+      if (existing) {
+        appendInPlace(existing.time, signal.time);
+        appendInPlace(existing.values, signal.values);
+      } else {
+        this.signals.set(signal.id, {
+          ...signal,
+          time: signal.time.slice(),
+          values: signal.values.slice(),
+        });
+      }
+    }
+    this.dirty = true;
+  }
+
+  get pending(): boolean {
+    return this.dirty;
+  }
+
+  /** Signals accumulated so far, or undefined when nothing changed since the last call. */
+  take(): SignalDescriptor[] | undefined {
+    if (!this.dirty) {
+      return undefined;
+    }
+    this.dirty = false;
+    return Array.from(this.signals.values(), (signal) => ({ ...signal }));
+  }
 }

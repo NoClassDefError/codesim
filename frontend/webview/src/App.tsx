@@ -6,18 +6,29 @@ import { SystemTree } from './components/SystemTree';
 import { Toolbar } from './components/Toolbar';
 import { TopologyView } from './components/TopologyView';
 import { mockSystem } from './model/mockSystem';
-import { orientFlowEdges, snapshotToFlow } from './model/flowModel';
+import { orientFlowEdges, snapshotToFlow, topologySignature } from './model/flowModel';
 import type { PortSide, Selection, SnapshotLayout, SystemSnapshot } from './model/types';
 
 export function App() {
   const [snapshot, setSnapshot] = useState<SystemSnapshot>(mockSystem);
-  const initialFlow = useMemo(() => snapshotToFlow(snapshot), [snapshot]);
+  // The snapshot the canvas was laid out from. Analysis results arrive as new
+  // snapshots of the same topology; re-running the layout for them would
+  // rebuild every node and edge and drop unsaved drags and the selection.
+  const [layoutSnapshot, setLayoutSnapshot] = useState<SystemSnapshot>(mockSystem);
+  const initialFlow = useMemo(() => snapshotToFlow(layoutSnapshot), [layoutSnapshot]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialFlow.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
   const [selection, setSelection] = useState<Selection>(null);
 
   useEffect(() => {
-    const unsubscribe = onSystemSnapshot(setSnapshot);
+    const unsubscribe = onSystemSnapshot((next, reason) => {
+      setSnapshot(next);
+      setLayoutSnapshot((current) => (
+        reason !== 'load' && topologySignature(current) === topologySignature(next)
+          ? current
+          : next
+      ));
+    });
     requestSystemSnapshot();
     return unsubscribe;
   }, []);
