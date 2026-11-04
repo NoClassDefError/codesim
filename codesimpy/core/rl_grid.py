@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from functools import cached_property
 from typing import Any, Iterable
 
 import numpy as np
 import sympy as sp
 from scipy.linalg import eig
 from scipy.optimize import least_squares, root
+
+# Symbolic models keyed by RLGrid._structureKey(); oldest entries are evicted first.
+_MODEL_CACHE: "OrderedDict[tuple, dict[str, Any]]" = OrderedDict()
+_MODEL_CACHE_SIZE = 8
 
 
 class RLGrid:
@@ -99,15 +105,77 @@ class RLGrid:
             ])
         return sp.Matrix.vstack(*stateParts), sp.Matrix.vstack(ib, vn, deviceCurrent)
 
+    def _structureKey(self) -> tuple:
+        """Fingerprint everything that enters the symbolic model, but no numeric values.
+
+        Parameter values (``p[...]["num"]``, ``L``, ``R``) are passed to the compiled
+        functions at call time, so grids that differ only in those values share one
+        cached model. Anything written into the equations as a number (per-unit scales,
+        values substituted inside a device) is part of ``f``/``g``/``getFInit`` or the
+        scales below, so changing it gives a different key.
+        """
+        def matrix(value: Any) -> sp.ImmutableMatrix:
+            return sp.ImmutableMatrix(sp.Matrix(value) if len(value) else sp.zeros(0, 1))
+
+        devices = tuple(
+            (
+                f"{type(device).__module__}.{type(device).__qualname__}",
+                device.index, device.type,
+                float(device.Inputscale), float(device.Outputscale),
+                tuple(device.x), tuple(device.u), tuple(device.uref),
+                matrix(device.f), matrix(device.g), matrix(device.getFInit()),
+            )
+            for device in self.Vdev + self.Idev
+        )
+        return (
+            self.A.shape, self.A.tobytes(), devices,
+            tuple(self.x), tuple(self.u),
+            tuple(self.parameterMap["parameterSymbols"]),
+        )
+
     def _buildSymbolicModel(self) -> None:
-        self.f, self.g = self.getStateAndOutputEquationsSym()
+        """Attach the symbolic model, reusing a cached build when the structure matches."""
+        key = self._structureKey()
+        entry = _MODEL_CACHE.get(key)
+        if entry is None:
+            entry = self._buildSymbolicEntry()
+            _MODEL_CACHE[key] = entry
+            while len(_MODEL_CACHE) > _MODEL_CACHE_SIZE:
+                _MODEL_CACHE.popitem(last=False)
+        else:
+            _MODEL_CACHE.move_to_end(key)
+        self._modelEntry = entry
+        self.__dict__.pop("A_sym", None)
+        self.__dict__.pop("A_core", None)
+
+        self.f, self.g = entry["f"], entry["g"]
+        self.f_init_sym = entry["f_init_sym"]
+        self._f_init_residual = entry["f_init_residual"]
+        self.fInitStateIndices = entry["fInitStateIndices"]
+        # Wrap per grid: the wrappers read this grid's parameter values.
+        self.f_core = self._wrap(entry["fFunction"])
+        self.g_core = self._wrap(entry["gFunction"])
+        self.f_init_core = self._wrap(entry["fInitFunction"])
+        self.f_numeric = self.f_core
+        self.f_init = self.f_init_core
+
+        def g_numeric(state: Any, *reference: Any):
+            value = self.g_core(state, *reference)
+            branchStop = 2 * self.b
+            voltageStop = branchStop + 2 * self.n
+            return value[:branchStop], value[branchStop:voltageStop], value[voltageStop:]
+        self.g_numeric = g_numeric
+
+    def _buildSymbolicEntry(self) -> dict[str, Any]:
+        """Derive and compile the symbolic model (slow; result is shared via the cache)."""
+        f, g = self.getStateAndOutputEquationsSym()
         if self.b:
             Jbar = sp.kronecker_product(sp.eye(self.b), sp.Matrix([[0, -1], [1, 0]]))
-            branchInit = self.f[: 2 * self.b, :] - Jbar * sp.Matrix(self.ibsym)
+            branchInit = f[: 2 * self.b, :] - Jbar * sp.Matrix(self.ibsym)
         else:
             branchInit = sp.zeros(0, 1)
-        self.f_init_sym = sp.MutableDenseMatrix(self.f)
-        self.f_init_sym[: 2 * self.b, :] = branchInit
+        f_init_sym = sp.MutableDenseMatrix(f)
+        f_init_sym[: 2 * self.b, :] = branchInit
 
         Abar = (
             sp.kronecker_product(sp.Matrix(self.A), sp.eye(2))
@@ -117,8 +185,8 @@ class RLGrid:
         networkCurrent = Abar * branchState
         voltageStart = 2 * self.b
         currentStart = voltageStart + 2 * self.n
-        nodeVoltage = self.g[voltageStart:currentStart, :]
-        deviceCurrent = self.g[currentStart:currentStart + 2 * self.n, :]
+        nodeVoltage = g[voltageStart:currentStart, :]
+        deviceCurrent = g[currentStart:currentStart + 2 * self.n, :]
         residualParts: list[sp.Matrix] = [branchInit]
         residualStateIndices = list(range(2 * self.b))
         stateOffset = 2 * self.b
@@ -142,32 +210,51 @@ class RLGrid:
                 voltageInit.subs(substitutions, simultaneous=True),
                 currentInit.subs(substitutions, simultaneous=True),
             ])
-        self._f_init_residual = sp.Matrix.vstack(*residualParts)
-        self.fInitStateIndices = np.asarray(residualStateIndices, dtype=int)
-        if self.fInitStateIndices.size != self._f_init_residual.rows:
+        f_init_residual = sp.Matrix.vstack(*residualParts)
+        fInitStateIndices = np.asarray(residualStateIndices, dtype=int)
+        if fInitStateIndices.size != f_init_residual.rows:
             raise ValueError("initialization residual/state mapping is inconsistent")
-        self.A_sym = self.f_init_sym.jacobian(self.x)
-        if self.A_sym.has(sp.Derivative):
-            raise ValueError("state Jacobian contains unresolved symbolic derivatives")
+        fInitStateIndices.setflags(write=False)
+        # Cached objects are shared between grids, so store them immutable.
+        # The state Jacobian is not built here: it dominates construction time
+        # and is only needed for linear analyses (see A_sym / A_core).
+        return {
+            "f": sp.ImmutableMatrix(f), "g": sp.ImmutableMatrix(g),
+            "f_init_sym": sp.ImmutableMatrix(f_init_sym),
+            "f_init_residual": sp.ImmutableMatrix(f_init_residual),
+            "fInitStateIndices": fInitStateIndices,
+            "fFunction": self._lambdify(f),
+            "gFunction": self._lambdify(g),
+            "fInitFunction": self._lambdify(f_init_residual),
+        }
 
-        self.f_core = self._compile(self.f)
-        self.g_core = self._compile(self.g)
-        self.f_init_core = self._compile(self._f_init_residual)
-        self.A_core = self._compile(self.A_sym, matrix=True)
-        self.f_numeric = self.f_core
-        self.f_init = self.f_init_core
+    @cached_property
+    def A_sym(self) -> sp.Matrix:
+        """Symbolic state Jacobian, derived on first use and shared via the model cache."""
+        if "A_sym" not in self._modelEntry:
+            jacobian = self.f_init_sym.jacobian(self.x)
+            if jacobian.has(sp.Derivative):
+                raise ValueError("state Jacobian contains unresolved symbolic derivatives")
+            self._modelEntry["A_sym"] = sp.ImmutableMatrix(jacobian)
+        return self._modelEntry["A_sym"]
 
-        def g_numeric(state: Any, *reference: Any):
-            value = self.g_core(state, *reference)
-            branchStop = 2 * self.b
-            voltageStop = branchStop + 2 * self.n
-            return value[:branchStop], value[branchStop:voltageStop], value[voltageStop:]
-        self.g_numeric = g_numeric
+    @cached_property
+    def A_core(self):
+        """Numeric state Jacobian, compiled on first use and shared via the model cache."""
+        if "AFunction" not in self._modelEntry:
+            self._modelEntry["AFunction"] = self._lambdify(self.A_sym)
+        return self._wrap(self._modelEntry["AFunction"], matrix=True)
+
+    def _lambdify(self, expression: sp.Matrix):
+        """Compile an expression; arguments are states, references, then parameters."""
+        arguments = list(self.x) + list(self.u) + list(self.parameterMap["parameterSymbols"])
+        return sp.lambdify(arguments, expression, modules="numpy", cse=True, docstring_limit=0)
 
     def _compile(self, expression: sp.Matrix, matrix: bool = False):
-        arguments = list(self.x) + list(self.u) + list(self.parameterMap["parameterSymbols"])
-        function = sp.lambdify(arguments, expression, modules="numpy", cse=True, docstring_limit=0)
+        return self._wrap(self._lambdify(expression), matrix=matrix)
 
+    def _wrap(self, function: Any, matrix: bool = False):
+        """Bind a compiled function to this grid's current parameter values."""
         def numeric(state: Any, *reference: Any):
             stateValues = np.asarray(state, dtype=float).reshape(-1)
             if len(reference) == 1 and np.asarray(reference[0]).size == len(self.u):

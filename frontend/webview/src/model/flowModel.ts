@@ -1,25 +1,52 @@
 import type { Edge, Node } from '@xyflow/react';
+import {
+  buildDisplayGraph,
+  type DisplayGraph,
+  type NodeRole,
+} from './displayGraph';
+import {
+  computeElkLayout,
+  type ElkLayoutResult,
+  type LabelPlacement,
+  type LayoutConnection,
+  type LayoutNode,
+} from './elkLayout';
 import type {
   ComponentDescriptor,
   ComponentKind,
   PortSide,
+  Selection,
   SystemSnapshot,
 } from './types';
 
 export interface SystemNodeData extends Record<string, unknown> {
   component: ComponentDescriptor;
+  role: NodeRole;
+  /** What the inspector shows when this node is selected. */
+  selectAs: Selection;
+  /** For a ground symbol: the element it belongs to. */
+  ownerId?: string;
+  /** The element ends in its own ground symbol, drawn below it. */
+  hasGround?: boolean;
   terminalSide?: PortSide;
+  /** Drawn size; wires end on its border, so it is the size of the symbol itself. */
+  width: number;
+  height: number;
 }
 
 export interface RoutedEdgeData extends Record<string, unknown> {
   label: string;
   waypoint?: { x: number; y: number };
+  /** Orthogonal route from the automatic layout; dropped when an endpoint moves. */
+  points?: Point[];
   routeAxis?: 'horizontal' | 'vertical';
   laneOffset?: number;
   sourceSide?: PortSide;
   targetSide?: PortSide;
   sourceSideLocked?: boolean;
   targetSideLocked?: boolean;
+  /** Wire from an element to its ground symbol. */
+  ground?: boolean;
 }
 
 export type SystemFlowNode = Node<SystemNodeData, 'systemNode'>;
@@ -30,6 +57,7 @@ interface Point {
   y: number;
 }
 
+/** Spacing of the built-in fallback layout. */
 const BUS_WIDTH = 76;
 const BUS_HEIGHT = 92;
 const DEVICE_WIDTH = 116;
@@ -42,17 +70,30 @@ const COMPONENT_GAP = 190;
 const ORIGIN_X = 150;
 const ORIGIN_Y = 100;
 
-function nodeSize(component: ComponentDescriptor): { width: number; height: number } {
-  return component.kind === 'bus'
-    ? { width: BUS_WIDTH, height: BUS_HEIGHT }
-    : { width: DEVICE_WIDTH, height: DEVICE_HEIGHT };
+/** Drawn sizes. Wires end on the symbol, so these are the symbol sizes. */
+export const ICON_SIZE = 44;
+export const BUS_BAR_WIDTH = 8;
+const BUS_MIN_HEIGHT = 44;
+const BUS_PORT_PITCH = 22;
+export const GROUND_WIDTH = 26;
+export const GROUND_HEIGHT = 20;
+/** Length of the wire from an element down to its ground symbol. */
+const GROUND_DROP = 22;
+
+function renderSize(role: NodeRole): { width: number; height: number } {
+  if (role === 'bus') {
+    return { width: BUS_BAR_WIDTH, height: BUS_MIN_HEIGHT };
+  }
+  if (role === 'ground') {
+    return { width: GROUND_WIDTH, height: GROUND_HEIGHT };
+  }
+  return { width: ICON_SIZE, height: ICON_SIZE };
 }
 
 function centerOf(node: SystemFlowNode): Point {
-  const size = nodeSize(node.data.component);
   return {
-    x: node.position.x + size.width / 2,
-    y: node.position.y + size.height / 2,
+    x: node.position.x + node.data.width / 2,
+    y: node.position.y + node.data.height / 2,
   };
 }
 
@@ -177,7 +218,10 @@ function layoutBusComponent(
   };
 }
 
-function layoutSnapshot(snapshot: SystemSnapshot): {
+function layoutSnapshot(snapshot: {
+  components: ComponentDescriptor[];
+  connections: Array<{ id: string; source: string; target: string }>;
+}): {
   positions: Map<string, Point>;
   terminalSides: Map<string, PortSide>;
 } {
@@ -339,7 +383,8 @@ function orientFlowEdge(
 ): SystemFlowEdge {
   const source = nodeById.get(edge.source);
   const target = nodeById.get(edge.target);
-  if (!source || !target) {
+  // Routed edges carry the port sides chosen by the layout.
+  if (!source || !target || (edge.data?.points?.length ?? 0) >= 2) {
     return edge;
   }
   const sourceCenter = centerOf(source);
@@ -413,6 +458,210 @@ export function topologySignature(snapshot: SystemSnapshot): string {
   ]);
 }
 
+
+/** Port sides implied by the first and last segment of an orthogonal route. */
+function sidesFromPoints(points: Point[]): { sourceSide: PortSide; targetSide: PortSide } {
+  const direction = (from: Point, to: Point): PortSide => {
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return dx >= 0 ? 'right' : 'left';
+    }
+    return dy >= 0 ? 'bottom' : 'top';
+  };
+  const last = points.length - 1;
+  return {
+    sourceSide: direction(points[0], points[1]),
+    targetSide: direction(points[last], points[last - 1]),
+  };
+}
+
+function isGroundEdge(edge: SystemFlowEdge): boolean {
+  return Boolean(edge.data?.ground);
+}
+
+/**
+ * Port sides of a wire: the user's choice where fixed, otherwise the
+ * one-line convention. Power flows left to right; a grid feeds its bus from
+ * the left; shunt elements hang below the bus with their ground beneath.
+ */
+function resolveSides(
+  edge: SystemFlowEdge,
+  nodeById: Map<string, SystemFlowNode>,
+): { sourceSide: PortSide; targetSide: PortSide; reversed: boolean } {
+  const target = nodeById.get(edge.target);
+  const reversed = target?.data.component.kind === 'grid';
+  const defaultTarget: PortSide = target?.data.role === 'shunt' || target?.data.role === 'ground'
+    ? 'top'
+    : reversed ? 'right' : 'left';
+  return {
+    sourceSide: (edge.data?.sourceSideLocked && edge.data.sourceSide) || (reversed ? 'left' : 'right'),
+    targetSide: (edge.data?.targetSideLocked && edge.data.targetSide) || defaultTarget,
+    reversed,
+  };
+}
+
+/** Busbars grow with the number of wires on their busiest side. */
+function withBusHeights(nodes: SystemFlowNode[], edges: SystemFlowEdge[]): SystemFlowNode[] {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const counts = new Map<string, Record<PortSide, number>>();
+  const count = (nodeId: string, side: PortSide) => {
+    const entry = counts.get(nodeId) ?? { left: 0, right: 0, top: 0, bottom: 0 };
+    entry[side] += 1;
+    counts.set(nodeId, entry);
+  };
+  for (const edge of edges) {
+    if (isGroundEdge(edge)) {
+      continue;
+    }
+    const sides = resolveSides(edge, nodeById);
+    count(edge.source, sides.sourceSide);
+    count(edge.target, sides.targetSide);
+  }
+  return nodes.map((node) => {
+    if (node.data.role !== 'bus') {
+      return node;
+    }
+    const entry = counts.get(node.id);
+    const wires = Math.max(entry?.left ?? 0, entry?.right ?? 0, 1);
+    const height = Math.max(BUS_MIN_HEIGHT, (wires + 1) * BUS_PORT_PITCH);
+    return height === node.data.height ? node : { ...node, data: { ...node.data, height } };
+  });
+}
+
+function labelFor(node: SystemFlowNode): LayoutNode['label'] {
+  if (node.data.role === 'ground') {
+    return undefined;
+  }
+  const placement: LabelPlacement = node.data.role === 'bus'
+    ? 'above'
+    : node.data.role === 'shunt' || node.data.hasGround ? 'right' : 'below';
+  const name = node.data.component.name;
+  const kind = kindLabels[node.data.component.kind] ?? '';
+  return {
+    width: Math.ceil(Math.min(150, Math.max(name.length * 7, kind.length * 6.5)) + 8),
+    height: 30,
+    placement,
+  };
+}
+
+/** ELK input: grounds are not laid out; their owners reserve the space below them instead. */
+function elkInput(nodes: SystemFlowNode[], edges: SystemFlowEdge[]): {
+  nodes: LayoutNode[];
+  connections: LayoutConnection[];
+} {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  return {
+    nodes: nodes
+      .filter((node) => node.data.role !== 'ground')
+      .map((node) => ({
+        id: node.id,
+        width: node.data.width,
+        height: node.data.height + (node.data.hasGround ? GROUND_DROP + GROUND_HEIGHT : 0),
+        label: labelFor(node),
+        position: node.position,
+      })),
+    connections: edges
+      .filter((edge) => !isGroundEdge(edge))
+      .map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, ...resolveSides(edge, nodeById) })),
+  };
+}
+
+/** Put every ground symbol straight below its element, unless its position is kept. */
+function placeGrounds(
+  nodes: SystemFlowNode[],
+  edges: SystemFlowEdge[],
+  keep: Set<string> = new Set(),
+): { nodes: SystemFlowNode[]; edges: SystemFlowEdge[] } {
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const placed = new Map<string, Point[]>();
+  const nextNodes = nodes.map((node) => {
+    const owner = node.data.ownerId ? nodeById.get(node.data.ownerId) : undefined;
+    if (node.data.role !== 'ground' || !owner || keep.has(node.id)) {
+      return node;
+    }
+    const x = owner.position.x + owner.data.width / 2;
+    const top = owner.position.y + owner.data.height;
+    const position = { x: x - GROUND_WIDTH / 2, y: top + GROUND_DROP };
+    placed.set(node.id, [{ x, y: top }, { x, y: position.y }]);
+    return { ...node, position };
+  });
+  const nextEdges = edges.map((edge) => {
+    const points = placed.get(edge.target);
+    if (!isGroundEdge(edge) || !points) {
+      return edge;
+    }
+    return {
+      ...edge,
+      sourceHandle: 'source-bottom',
+      targetHandle: 'target-top',
+      data: {
+        label: '',
+        ...edge.data,
+        points,
+        sourceSide: 'bottom' as PortSide,
+        targetSide: 'top' as PortSide,
+      },
+    };
+  });
+  return { nodes: nextNodes, edges: nextEdges };
+}
+
+/** Write an ELK result onto existing nodes and edges, then hang the grounds below their owners. */
+function applyElkLayout(
+  nodes: SystemFlowNode[],
+  edges: SystemFlowEdge[],
+  layout: ElkLayoutResult,
+): { nodes: SystemFlowNode[]; edges: SystemFlowEdge[] } {
+  const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+  const terminalSides = new Map<string, PortSide>();
+  layout.routes.forEach((route, edgeId) => {
+    const edge = edgeById.get(edgeId);
+    if (edge) {
+      terminalSides.set(edge.source, route.sourceSide);
+      terminalSides.set(edge.target, route.targetSide);
+    }
+  });
+  const positioned = nodes.map((node) => ({
+    ...node,
+    position: layout.positions.get(node.id) ?? node.position,
+    data: {
+      ...node.data,
+      terminalSide: node.data.role === 'bus'
+        ? node.data.terminalSide
+        : terminalSides.get(node.id) ?? node.data.terminalSide,
+    },
+  }));
+  const routed = edges.map((edge) => {
+    const route = layout.routes.get(edge.id);
+    if (!route) {
+      return edge;
+    }
+    return {
+      ...edge,
+      sourceHandle: `source-${route.sourceSide}`,
+      targetHandle: `target-${route.targetSide}`,
+      data: {
+        label: edge.data?.label ?? '',
+        ...edge.data,
+        points: route.points,
+        waypoint: undefined,
+        sourceSide: route.sourceSide,
+        targetSide: route.targetSide,
+        routeAxis: undefined,
+        laneOffset: undefined,
+      },
+    };
+  });
+  return placeGrounds(positioned, routed);
+}
+
+/** Whether a saved layout places everything this version draws. */
+function savedLayoutCovers(graph: DisplayGraph, snapshot: SystemSnapshot): boolean {
+  const saved = snapshot.layout?.nodes;
+  return Boolean(saved) && graph.nodes.every((node) => saved?.[node.component.id] !== undefined);
+}
+
 export function snapshotToFlow(
   snapshot: SystemSnapshot,
   options: { useSavedLayout?: boolean } = {},
@@ -420,39 +669,124 @@ export function snapshotToFlow(
   nodes: SystemFlowNode[];
   edges: SystemFlowEdge[];
 } {
-  const automaticLayout = layoutSnapshot(snapshot);
+  const graph = buildDisplayGraph(snapshot);
+  const automaticLayout = layoutSnapshot({
+    components: graph.nodes.filter((node) => node.role !== 'ground').map((node) => node.component),
+    connections: graph.connections.filter((connection) => !connection.ground),
+  });
   const savedLayout = options.useSavedLayout === false ? undefined : snapshot.layout;
-  const nodes: SystemFlowNode[] = snapshot.components.map((component) => ({
-    id: component.id,
-    type: 'systemNode',
-    position: savedLayout?.nodes[component.id] ??
-      automaticLayout.positions.get(component.id) ?? { x: ORIGIN_X, y: ORIGIN_Y },
-    data: {
-      component,
-      terminalSide: savedLayout?.nodes[component.id]?.terminalSide ??
-        automaticLayout.terminalSides.get(component.id),
-    },
-  }));
-  const edges: SystemFlowEdge[] = snapshot.connections.map((connection) => {
+  const owners = new Set(graph.nodes.map((node) => node.ownerId).filter(Boolean));
+  const nodes: SystemFlowNode[] = graph.nodes.map((node) => {
+    const id = node.component.id;
+    return {
+      id,
+      type: 'systemNode',
+      position: savedLayout?.nodes[id] ??
+        automaticLayout.positions.get(id) ?? { x: ORIGIN_X, y: ORIGIN_Y },
+      selectable: node.selectAs !== null,
+      data: {
+        component: node.component,
+        role: node.role,
+        selectAs: node.selectAs,
+        ownerId: node.ownerId,
+        hasGround: owners.has(id),
+        terminalSide: savedLayout?.nodes[id]?.terminalSide ?? automaticLayout.terminalSides.get(id),
+        ...renderSize(node.role),
+      },
+    };
+  });
+  const edges: SystemFlowEdge[] = graph.connections.map((connection) => {
     const savedEdge = savedLayout?.edges[connection.id];
+    const points = savedEdge?.points && savedEdge.points.length >= 2 ? savedEdge.points : undefined;
+    const routeSides = points ? sidesFromPoints(points) : undefined;
+    const sourceSide = savedEdge?.sourceSide ?? routeSides?.sourceSide;
+    const targetSide = savedEdge?.targetSide ?? routeSides?.targetSide;
     return {
       id: connection.id,
       type: 'routed',
       source: connection.source,
       target: connection.target,
+      ...(points ? { sourceHandle: `source-${sourceSide}`, targetHandle: `target-${targetSide}` } : {}),
+      selectable: connection.selectAs !== null,
+      focusable: connection.selectAs !== null,
       data: {
         label: connection.name,
+        ground: connection.ground,
         waypoint: savedEdge?.waypoint,
-        sourceSide: savedEdge?.sourceSide,
-        targetSide: savedEdge?.targetSide,
+        points,
+        sourceSide,
+        targetSide,
         sourceSideLocked: Boolean(savedEdge?.sourceSide),
         targetSideLocked: Boolean(savedEdge?.targetSide),
       },
-      selectable: true,
     };
   });
 
-  return { nodes, edges: orientFlowEdges(nodes, edges) };
+  const sized = withBusHeights(nodes, edges);
+  const keep = new Set(
+    savedLayout ? sized.filter((node) => savedLayout.nodes[node.id]).map((node) => node.id) : [],
+  );
+  const grounded = placeGrounds(sized, edges, keep);
+  return { nodes: grounded.nodes, edges: orientFlowEdges(grounded.nodes, grounded.edges) };
+}
+
+/**
+ * Lay out a snapshot. A saved layout that places every drawn element is used
+ * as it is; otherwise ELK places the elements and routes the wires. If ELK
+ * fails, the built-in layered layout is used so the canvas never stays empty.
+ */
+export async function layoutFlow(
+  snapshot: SystemSnapshot,
+  options: { useSavedLayout?: boolean } = {},
+): Promise<{ nodes: SystemFlowNode[]; edges: SystemFlowEdge[] }> {
+  if (options.useSavedLayout !== false && savedLayoutCovers(buildDisplayGraph(snapshot), snapshot)) {
+    return snapshotToFlow(snapshot);
+  }
+  const fallback = snapshotToFlow(snapshot, { useSavedLayout: false });
+  try {
+    const layout = await computeElkLayout({
+      ...elkInput(fallback.nodes, fallback.edges),
+      origin: { x: ORIGIN_X, y: ORIGIN_Y },
+    });
+    return applyElkLayout(fallback.nodes, fallback.edges, layout);
+  } catch (error) {
+    console.warn('CodeSim: automatic layout failed, using the basic layout.', error);
+    return fallback;
+  }
+}
+
+/**
+ * Interactive re-layout after the user moved nodes or fixed a port side.
+ * ELK keeps the current layer and order of the nodes, user-fixed port sides
+ * are respected, and the anchor node stays where it is.
+ */
+export async function relayoutFlow(
+  nodes: SystemFlowNode[],
+  edges: SystemFlowEdge[],
+  anchorId?: string,
+): Promise<{ nodes: SystemFlowNode[]; edges: SystemFlowEdge[] }> {
+  const sized = withBusHeights(nodes, edges);
+  const anchor = sized.find((node) => node.id === anchorId);
+  const layout = await computeElkLayout({
+    ...elkInput(sized, edges),
+    interactive: true,
+    // A ground is not laid out by ELK; keep its owner in place instead.
+    anchorId: anchor?.data.ownerId ?? anchorId,
+  });
+  return applyElkLayout(sized, edges, layout);
+}
+
+/** Forget the routes of edges attached to moving nodes; they fall back to automatic routing. */
+export function detachRoutes(edges: SystemFlowEdge[], nodeIds: Set<string>): SystemFlowEdge[] {
+  let changed = false;
+  const next = edges.map((edge) => {
+    if (!edge.data?.points || !(nodeIds.has(edge.source) || nodeIds.has(edge.target))) {
+      return edge;
+    }
+    changed = true;
+    return { ...edge, data: { ...edge.data, points: undefined } };
+  });
+  return changed ? next : edges;
 }
 
 export const kindLabels: Record<ComponentKind, string> = {
@@ -465,5 +799,6 @@ export const kindLabels: Record<ComponentKind, string> = {
   motor: 'Motor',
   capacitor: 'Capacitor',
   controller: 'Controller',
+  ground: 'Ground',
   generic: 'Component',
 };

@@ -618,5 +618,5 @@ class OutputJsonFactory:
         if "generator" in name or name.startswith("sg"): return "generator", "generator"
         if "motor" in name: return "motor", "motor"
         if "capacitor" in name: return "capacitor", "capacitor"
-        if "load" in name: return "load", "load"
+        if "load" in name or name in ("zip", "cpl"): return "load", "load"
         return "generic", "device"

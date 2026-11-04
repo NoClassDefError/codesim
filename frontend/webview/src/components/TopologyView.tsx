@@ -4,6 +4,7 @@ import {
   MiniMap,
   ReactFlow,
   type OnEdgesChange,
+  type OnNodeDrag,
   type OnNodesChange,
 } from '@xyflow/react';
 import type { Selection } from '../model/types';
@@ -20,6 +21,8 @@ interface Props {
   onNodesChange: OnNodesChange<SystemFlowNode>;
   onEdgesChange: OnEdgesChange<SystemFlowEdge>;
   onSelectionChange: (selection: Selection) => void;
+  onNodeDragStart?: OnNodeDrag<SystemFlowNode>;
+  onNodeDragStop?: OnNodeDrag<SystemFlowNode>;
 }
 
 export function TopologyView({
@@ -28,6 +31,8 @@ export function TopologyView({
   onNodesChange,
   onEdgesChange,
   onSelectionChange,
+  onNodeDragStart,
+  onNodeDragStop,
 }: Props) {
   return (
     <ReactFlow<SystemFlowNode, SystemFlowEdge>
@@ -37,9 +42,12 @@ export function TopologyView({
       edgeTypes={edgeTypes}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
+      onNodeDragStart={onNodeDragStart}
+      onNodeDragStop={onNodeDragStop}
       onSelectionChange={({ nodes: selectedNodes, edges: selectedEdges }) => {
         if (selectedNodes[0]) {
-          onSelectionChange({ kind: 'component', id: selectedNodes[0].id });
+          // Drawn elements may stand for something else (a load branch, the ground node).
+          onSelectionChange(selectedNodes[0].data.selectAs);
         } else if (selectedEdges[0]) {
           onSelectionChange({ kind: 'connection', id: selectedEdges[0].id });
         }

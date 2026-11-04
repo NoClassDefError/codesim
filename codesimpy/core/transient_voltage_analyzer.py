@@ -265,7 +265,7 @@ class TransientVoltageAnalyzer:
         key = tuple(slow)
         if key not in cache:
             # Restore dynamic rows omitted by the compiled initialization residual.
-            equations = grid.f_init_sym.copy()
+            equations = grid.f_init_sym.as_mutable()
             for index, residual in zip(grid.fInitStateIndices, grid._f_init_residual):
                 equations[index] = residual
             jacobian = equations.extract(fast, [0]).jacobian(grid.x)

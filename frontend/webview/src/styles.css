@@ -426,60 +426,71 @@ body[data-view="viewer"] .toolbar-actions .toolbar-icon-button {
 .react-flow__minimap { background: var(--vscode-sideBar-background, #252526); }
 .react-flow__controls button { background: var(--vscode-sideBar-background, #252526); color: inherit; border-color: #444; }
 
+/* Node boxes are exactly the size of their symbol, so wires end on the symbol. */
 .system-node {
   position: relative;
-  display: grid;
-  width: 116px;
-  height: 106px;
-  place-items: center;
   color: var(--vscode-foreground, #e5e5e5);
   background: transparent;
-  text-align: center;
 }
-.system-node-symbol {
-  display: grid;
-  width: 58px;
-  height: 58px;
-  place-items: center;
-  border-radius: 50%;
-  transform-origin: center;
+.system-node-icon {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  color: var(--vscode-icon-foreground, var(--vscode-foreground, #c7d0da));
 }
-.system-node.selected .system-node-symbol {
-  background: color-mix(in srgb, var(--vscode-focusBorder, #4aa8ff) 18%, transparent);
-  outline: 2px solid var(--vscode-focusBorder, #4aa8ff);
-  outline-offset: 3px;
-}
-.system-node-icon { width: 54px; height: 54px; color: var(--vscode-icon-foreground, var(--vscode-foreground, #c7d0da)); }
-.system-node-label { margin-top: 3px; text-shadow: 0 1px 2px var(--vscode-editor-background, #1e1e1e); }
-.system-node-kind { margin-top: 2px; color: var(--vscode-descriptionForeground, #a9b1ba); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
-.system-node-name { max-width: 130px; font-size: 12px; font-weight: 650; line-height: 1.2; }
-.kind-bus { width: 76px; height: 92px; }
-.kind-bus .system-node-symbol {
-  width: 48px;
-  height: 48px;
-  border: 1px solid color-mix(in srgb, var(--vscode-foreground, #e5e5e5) 28%, transparent);
+.system-node.selected .system-node-icon {
   border-radius: 4px;
-  background: color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 86%, var(--vscode-foreground, #e5e5e5));
+  background: color-mix(in srgb, var(--vscode-focusBorder, #4aa8ff) 16%, transparent);
+  outline: 2px solid var(--vscode-focusBorder, #4aa8ff);
+  outline-offset: 2px;
 }
-.kind-bus .system-node-icon { width: 39px; height: 39px; color: var(--vscode-foreground, #e5e5e5); }
+.system-node-busbar {
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--vscode-foreground, #e5e5e5);
+}
+.system-node.selected .system-node-busbar {
+  background: var(--vscode-focusBorder, #4aa8ff);
+  outline: 2px solid color-mix(in srgb, var(--vscode-focusBorder, #4aa8ff) 40%, transparent);
+  outline-offset: 2px;
+}
+
+/* Labels sit outside the box; ELK reserves the space for them. */
+.system-node-label {
+  position: absolute;
+  pointer-events: none;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px var(--vscode-editor-background, #1e1e1e);
+}
+.system-node-label.label-below { top: calc(100% + 4px); left: 50%; transform: translateX(-50%); text-align: center; }
+.system-node-label.label-above { bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); text-align: center; }
+.system-node-label.label-right { top: 2px; left: calc(100% + 6px); text-align: left; }
+.system-node-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; font-weight: 650; line-height: 1.2; }
+.system-node-kind { margin-top: 2px; color: var(--vscode-descriptionForeground, #a9b1ba); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+
 .kind-grid .system-node-icon { color: var(--vscode-charts-yellow, #f0c36d); }
 .kind-gfm .system-node-icon, .kind-gfl .system-node-icon { color: var(--vscode-charts-blue, #6cb6ff); }
 .kind-load .system-node-icon { color: var(--vscode-charts-green, #7ee787); }
 .kind-generator .system-node-icon { color: var(--vscode-charts-purple, #d2a8ff); }
 .kind-motor .system-node-icon { color: var(--vscode-charts-orange, #ffa657); }
 .kind-capacitor .system-node-icon { color: var(--vscode-charts-blue, #79c0ff); }
+.kind-ground .system-node-icon { color: var(--vscode-descriptionForeground, #a8b0ba); }
+
+/* Handles only anchor the fallback routes; wires attach to the symbol itself. */
 .react-flow__handle {
-  width: 6px;
-  height: 6px;
-  border: 1px solid var(--vscode-editor-background, #202020);
-  background: var(--vscode-descriptionForeground, #9da7b1);
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
   opacity: 0;
 }
-.react-flow__handle.target-port { opacity: 0; }
-.system-node.selected .react-flow__handle:not(.target-port) { opacity: .8; }
 
-.route-edge { stroke: var(--vscode-descriptionForeground, #a8b0ba); stroke-width: 2.1; }
-.route-edge.selected { stroke: var(--vscode-focusBorder, #4aa8ff); stroke-width: 3; }
+.route-edge { stroke: var(--vscode-descriptionForeground, #a8b0ba); stroke-width: 1.8; }
+.route-edge.selected { stroke: var(--vscode-focusBorder, #4aa8ff); stroke-width: 2.6; }
 .edge-caption {
   position: absolute;
   pointer-events: none;

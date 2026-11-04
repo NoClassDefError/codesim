@@ -1,12 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useEdgesState, useNodesState } from '@xyflow/react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEdgesState, useNodesState, type OnNodeDrag } from '@xyflow/react';
 import { onSystemSnapshot, requestSystemSnapshot, saveLayout } from './bridge/vscode';
 import { Inspector } from './components/Inspector';
 import { SystemTree } from './components/SystemTree';
 import { Toolbar } from './components/Toolbar';
 import { TopologyView } from './components/TopologyView';
 import { mockSystem } from './model/mockSystem';
-import { orientFlowEdges, snapshotToFlow, topologySignature } from './model/flowModel';
+import {
+  detachRoutes,
+  layoutFlow,
+  orientFlowEdges,
+  relayoutFlow,
+  topologySignature,
+  type SystemFlowEdge,
+  type SystemFlowNode,
+} from './model/flowModel';
 import type { PortSide, Selection, SnapshotLayout, SystemSnapshot } from './model/types';
 
 export function App() {
@@ -15,10 +23,34 @@ export function App() {
   // snapshots of the same topology; re-running the layout for them would
   // rebuild every node and edge and drop unsaved drags and the selection.
   const [layoutSnapshot, setLayoutSnapshot] = useState<SystemSnapshot>(mockSystem);
-  const initialFlow = useMemo(() => snapshotToFlow(layoutSnapshot), [layoutSnapshot]);
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialFlow.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges);
+  const [nodes, setNodes, onNodesChange] = useNodesState<SystemFlowNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<SystemFlowEdge>([]);
   const [selection, setSelection] = useState<Selection>(null);
+  // Latest canvas state, read by the asynchronous layout callbacks.
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  useEffect(() => {
+    nodesRef.current = nodes;
+    edgesRef.current = edges;
+  }, [nodes, edges]);
+
+  // Layouts finish asynchronously; only the most recently requested one is applied.
+  const layoutRequest = useRef(0);
+  const applyLayout = useCallback((
+    pending: Promise<{ nodes: SystemFlowNode[]; edges: SystemFlowEdge[] }>,
+  ) => {
+    const request = ++layoutRequest.current;
+    pending
+      .then((flow) => {
+        if (request === layoutRequest.current) {
+          setNodes(flow.nodes);
+          setEdges(flow.edges);
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn('CodeSim: topology re-layout failed.', error);
+      });
+  }, [setEdges, setNodes]);
 
   useEffect(() => {
     const unsubscribe = onSystemSnapshot((next, reason) => {
@@ -34,19 +66,32 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    setNodes(initialFlow.nodes);
-    setEdges(initialFlow.edges);
     setSelection(null);
-  }, [initialFlow, setEdges, setNodes]);
+    applyLayout(layoutFlow(layoutSnapshot));
+  }, [applyLayout, layoutSnapshot]);
 
   useEffect(() => {
     setEdges((currentEdges) => orientFlowEdges(nodes, currentEdges));
   }, [nodes, setEdges]);
 
   const resetLayout = () => {
-    const flow = snapshotToFlow(snapshot, { useSavedLayout: false });
-    setNodes(flow.nodes);
-    setEdges(flow.edges);
+    applyLayout(layoutFlow(snapshot, { useSavedLayout: false }));
+  };
+
+  // While nodes move, their wires use the simple automatic route; on drop ELK
+  // re-lays out the diagram, keeping the order the user chose.
+  const onNodeDragStart: OnNodeDrag<SystemFlowNode> = (_event, _node, dragged) => {
+    layoutRequest.current += 1;
+    setEdges((current) => detachRoutes(current, new Set(dragged.map((item) => item.id))));
+  };
+
+  const onNodeDragStop: OnNodeDrag<SystemFlowNode> = (_event, node, dragged) => {
+    const moved = new Map(dragged.map((item) => [item.id, item.position]));
+    const current = nodesRef.current.map((item) => {
+      const position = moved.get(item.id);
+      return position ? { ...item, position } : item;
+    });
+    applyLayout(relayoutFlow(current, edgesRef.current, node.id));
   };
 
   const saveCurrentLayout = () => {
@@ -62,8 +107,10 @@ export function App() {
       edges: Object.fromEntries(
         edges.map((edge) => [edge.id, {
           waypoint: edge.data?.waypoint,
-          sourceSide: edge.data?.sourceSide,
-          targetSide: edge.data?.targetSide,
+          points: edge.data?.points,
+          // Only user-fixed sides; automatic ones follow from the route.
+          sourceSide: edge.data?.sourceSideLocked ? edge.data.sourceSide : undefined,
+          targetSide: edge.data?.targetSideLocked ? edge.data.targetSide : undefined,
         }]),
       ),
     };
@@ -88,10 +135,13 @@ export function App() {
           ...edge.data,
           [`${endpoint}Side`]: side,
           [`${endpoint}SideLocked`]: Boolean(side),
+          // Redraw at once with the new side; the re-layout below routes it properly.
+          points: undefined,
         },
       };
     }));
     setEdges(updatedEdges);
+    applyLayout(relayoutFlow(nodes, updatedEdges, endpointId));
 
     const resolvedEdge = updatedEdges.find((edge) => edge.id === connectionId);
     const resolvedSide = endpoint === 'source'
@@ -129,6 +179,8 @@ export function App() {
               edges={edges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
+              onNodeDragStart={onNodeDragStart}
+              onNodeDragStop={onNodeDragStop}
               onSelectionChange={setSelection}
             />
           </div>

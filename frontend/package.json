@@ -33,7 +33,7 @@
       "activitybar": [
         {
           "id": "codesim",
-          "title": "codesim",
+          "title": "CodeSim",
           "icon": "media/codesim.svg"
         }
       ]
@@ -43,7 +43,8 @@
         {
           "id": "codesim-frontend.viewer",
           "name": "System Viewer",
-          "type": "webview"
+          "type": "webview",
+          "icon": "media/codesim.svg"
         }
       ]
     },
@@ -99,6 +100,7 @@
   },
   "dependencies": {
     "@xyflow/react": "^12.12.0",
+    "elkjs": "^0.12.1",
     "katex": "^0.19.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

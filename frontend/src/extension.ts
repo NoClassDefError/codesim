@@ -261,7 +261,8 @@ class CodeSimHost {
 		}
 	}
 
-	private async sendBackendInfo(): Promise<void> {
+	/** Publish the backend state; true when the selection fell back to the first system. */
+	private async sendBackendInfo(): Promise<boolean> {
 		let systems: string[] = [];
 		if (this.backendProcess) {
 			try {
@@ -271,6 +272,12 @@ class CodeSimHost {
 				this.output.appendLine(`[backend] ${detail}`);
 			}
 		}
+		// Backends list different systems (codesim classes, PESLite files): keep the
+		// selection only when this backend offers it.
+		const fellBack = systems.length > 0 && !systems.includes(this.selectedSystem);
+		if (fellBack) {
+			this.selectedSystem = systems[0];
+		}
 		await this.postToWebviews({
 			type: 'backendInfo',
 			systems,
@@ -278,12 +285,17 @@ class CodeSimHost {
 			backendRunning: Boolean(this.backendProcess),
 			running: Boolean(this.activeAction),
 		});
+		return fellBack;
 	}
 
 	private async startBackendFromUi(): Promise<void> {
 		try {
 			await this.startBackend();
-			await this.sendBackendInfo();
+			// Selecting the system already shown in the dropdown fires no change event, so
+			// load a fallback selection here; a backend offering the default keeps the old flow.
+			if (await this.sendBackendInfo()) {
+				await this.runDescriptor(this.selectedSystem);
+			}
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
 			void vscode.window.showErrorMessage(`Unable to start CodeSim backend: ${detail}`);
@@ -349,7 +361,9 @@ class CodeSimHost {
 			const systems = await this.request<string[]>('getSystems', {});
 			const selected = systemName?.trim();
 			if (!selected || !systems.includes(selected)) {
-				void vscode.window.showErrorMessage('Select a valid CodeSim System subclass.');
+				const detail = `Unknown system "${selected ?? ''}". Select one of: ${systems.join(', ')}.`;
+				this.output.appendLine(`[backend] ${detail}`);
+				void vscode.window.showErrorMessage(detail);
 				return undefined;
 			}
 			this.selectedSystem = selected;

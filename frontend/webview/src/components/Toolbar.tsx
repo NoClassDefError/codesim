@@ -35,7 +35,9 @@ export function Toolbar({
   useEffect(() => {
     const unsubscribeInfo = onBackendInfo((info) => {
       setSystems(info.systems);
-      setSelectedSystem(info.selectedSystem || info.systems[0] || '');
+      setSelectedSystem(info.systems.includes(info.selectedSystem)
+        ? info.selectedSystem
+        : info.systems[0] ?? '');
       setBackendRunning(info.backendRunning);
       setRunning(info.running);
     });

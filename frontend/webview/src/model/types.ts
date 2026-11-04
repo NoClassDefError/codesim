@@ -8,6 +8,7 @@ export type ComponentKind =
   | 'motor'
   | 'capacitor'
   | 'controller'
+  | 'ground'
   | 'generic';
 
 export type PortSide = 'top' | 'right' | 'bottom' | 'left';
@@ -62,6 +63,8 @@ export interface SnapshotLayout {
   }>;
   edges: Record<string, {
     waypoint?: { x: number; y: number };
+    /** Orthogonal route from the automatic layout, source to target, in flow coordinates. */
+    points?: Array<{ x: number; y: number }>;
     sourceSide?: PortSide;
     targetSide?: PortSide;
   }>;
