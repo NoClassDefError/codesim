@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from ..components import Capacitor, GFLVSCDamp, Infbus, ZeroCurrent
+from ..components import GFLVSCNoOuterLoop, Infbus
 from ..core import System
 
 
@@ -10,9 +10,8 @@ class GFLLVRTSystem(System):
     @staticmethod
     def defaultParameters(overrides=None):
         p = {
-            "SCR": 5, "rho": 0.25, "Pref": 1, "Qref": 0.1,
-            "C": 0.068,
-            "Kad": 0.2, "wAD": 10.0, "K1": 0.3, "Id2": 1.0,
+            "SCR": 2, "rho": 0.25, "Pref": 1, "Qref": 0.1,
+            "K1": 1, "Id2": 1.0,
             "frequency_Hz": 50, "validationTime_s": 1,
             "faultStart_s": 0.3, "faultComplete_s": 0.301,
             "recoveryStart_s": 0.6, "recoveryComplete_s": 0.601,
@@ -33,18 +32,18 @@ class GFLLVRTSystem(System):
         return p
 
     def __init__(self, p):
-        gfl = GFLVSCDamp(1, 8100, "1")
+        gfl = GFLVSCNoOuterLoop(1, 8100, "1")
         for name, value in (("Vctrl", 0), ("KpPll", 0.2), ("KiPll", 0.2), ("Vref", 1), ("Kq", 1)):
             gfl.p[name]["num"] = value
-        for name in ("Kad", "wAD", "K1", "Id2"):
+        for name in ("Rg", "Lg", "K1", "Id2"):
             gfl.p[name]["num"] = p[name]
-        capacitor = Capacitor(1, 8100, "2")
-        capacitor.p["C"]["num"] = p["C"]
-        zero, source = ZeroCurrent(1, 8100, "3"), Infbus(1, 8100, "4")
+        source = Infbus(1, 8100, "2")
         refs = {str(gfl.uref[0]): p["Pref"], str(gfl.uref[1]): p["Qref"], str(source.uref[0]): p["gridVoltage"]}
-        devices = {"Vdev": [capacitor, source], "Idev": [gfl, zero], "gfl": gfl, "capacitor": capacitor, "source": source}
-        network = {"A": np.array([[1.0], [-1.0]]), "R": [p["Rg"]], "L": [p["Lg"]],
-                   "busNames": ["PCC", "Infinite bus"]}
+        devices = {"Vdev": [source], "Idev": [gfl], "gfl": gfl, "source": source}
+        network = {
+            "A": np.empty((1, 0)), "R": [], "L": [],
+            "busNames": ["PCC / Infinite bus"],
+        }
         super().__init__(
             "GFLLVRTSystem", network, devices,
             {"Vbase": 1, "Sbase": 8100, "frequency_Hz": 50}, refs,
@@ -59,17 +58,21 @@ class GFLLVRTSystem(System):
 
     def calculateSignals(self, time_s, state, net):
         state = np.asarray(state)
+        p = self.parameters
         gfl = self.devices["gfl"]
         gflIdx = [self.stateNames.index(str(symbol)) for symbol in gfl.x]
         gridIdx = [self.stateNames.index(str(symbol)) for symbol in self.devices["source"].x]
-        voltage, branch = net["busVoltage"], net["branchCurrent"]
+        voltage = net["busVoltage"]
         id, iq = state[:, gflIdx[0]], state[:, gflIdx[1]]
         thetaPLL, xPLL = state[:, gflIdx[4]], state[:, gflIdx[5]]
-        pccVoltage, gridVoltage = np.abs(voltage[:, 0]), np.abs(voltage[:, 1])
-        vd = voltage[:, 0].real * np.cos(thetaPLL) + voltage[:, 0].imag * np.sin(thetaPLL)
-        vq = -voltage[:, 0].real * np.sin(thetaPLL) + voltage[:, 0].imag * np.cos(thetaPLL)
+        gridVoltageComplex = voltage[:, 0]
+        gridD = gridVoltageComplex.real * np.cos(thetaPLL) + gridVoltageComplex.imag * np.sin(thetaPLL)
+        gridQ = -gridVoltageComplex.real * np.sin(thetaPLL) + gridVoltageComplex.imag * np.cos(thetaPLL)
+        vd = gridD + p["Rg"] * id - gfl.p["w0"]["num"] * p["Lg"] * iq
+        vq = gridQ + p["Rg"] * iq + gfl.p["w0"]["num"] * p["Lg"] * id
+        pccVoltage, gridVoltage = np.hypot(vd, vq), np.abs(gridVoltageComplex)
         activePower, reactivePower = vd * id + vq * iq, vq * id - vd * iq
-        lvrtMode = 0.5 * (1 + np.sign(gfl.p["Vth"]["num"] - pccVoltage))
+        lvrtMode = 0.5 * (1 + np.tanh(50 * (gfl.p["Vth"]["num"] - pccVoltage)))
         droopActive = gfl.p["Vctrl"]["num"] * (1 - lvrtMode)
         qDroop = droopActive * (gfl.p["Vref"]["num"] - pccVoltage) / gfl.p["Kq"]["num"]
         qCommand = net["referenceTrace"][0, 1] + qDroop
@@ -77,8 +80,6 @@ class GFLLVRTSystem(System):
         iqReferenceSupport = -gfl.p["K1"]["num"] * (gfl.p["Vth"]["num"] - pccVoltage)
         iqReferenceFRT = np.clip(iqReferenceSupport, -gfl.p["Imax"]["num"], gfl.p["Imax"]["num"])
         idReferenceFRT = np.minimum(gfl.p["Id2"]["num"], np.sqrt(np.maximum(0, gfl.p["Imax"]["num"]**2 - iqReferenceFRT**2)))
-        branchActivePower = voltage[:, 0].real * branch[:, 0].real + voltage[:, 0].imag * branch[:, 0].imag
-        branchReactivePower = voltage[:, 0].imag * branch[:, 0].real - voltage[:, 0].real * branch[:, 0].imag
         pllFrequencyRaw = gfl.p["w0"]["num"] + gfl.p["KpPll"]["num"] * vq + gfl.p["KiPll"]["num"] * xPLL
         nodeVoltage = np.empty((len(state), 2 * voltage.shape[1]))
         nodeVoltage[:, 0::2], nodeVoltage[:, 1::2] = voltage.real, voltage.imag
@@ -86,8 +87,6 @@ class GFLLVRTSystem(System):
         deviceCurrent = np.empty((len(state), 2 * deviceCurrentValue.shape[1]))
         deviceCurrent[:, 0::2], deviceCurrent[:, 1::2] = deviceCurrentValue.real, deviceCurrentValue.imag
         return {
-            "branchCurrent": np.column_stack((branch[:, 0].real, branch[:, 0].imag)),
-            "lineCurrentMagnitude": np.abs(branch),
             "nodeVoltage": nodeVoltage,
             "busVoltageMagnitude": np.abs(voltage),
             "busVoltageAngleDeg": np.rad2deg(np.angle(voltage)),
@@ -99,8 +98,7 @@ class GFLLVRTSystem(System):
             "lvrtMode": lvrtMode, "droopActive": droopActive, "qDroop": qDroop, "qCommand": qCommand,
             "iqReferenceSchedule": iqReferenceSchedule, "iqReferenceSupport": iqReferenceSupport,
             "iqReferenceFRT": iqReferenceFRT, "idReferenceFRT": idReferenceFRT,
-            "gflCurrentMagnitude": np.hypot(id, iq), "branchCurrentMagnitude": np.abs(branch[:, 0]),
-            "branchActivePower": branchActivePower, "branchReactivePower": branchReactivePower,
+            "gflCurrentMagnitude": np.hypot(id, iq),
             "pllFrequencyRaw": pllFrequencyRaw,
             "pllFrequency": np.clip(pllFrequencyRaw, gfl.p["wPllMin"]["num"], gfl.p["wPllMax"]["num"]),
             "pllAngleError": np.rad2deg(np.unwrap(thetaPLL - state[:, gridIdx[0]])),

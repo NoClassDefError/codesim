@@ -64,8 +64,11 @@ class RLGrid:
         self._buildSymbolicModel()
 
     def getStateAndOutputEquationsSym(self) -> tuple[sp.Matrix, sp.Matrix]:
-        Abar = sp.kronecker_product(sp.Matrix(self.A), sp.eye(2))
-        ib = sp.Matrix(self.ibsym)
+        Abar = (
+            sp.kronecker_product(sp.Matrix(self.A), sp.eye(2))
+            if self.b else sp.zeros(2 * self.n, 0)
+        )
+        ib = sp.Matrix(self.ibsym) if self.b else sp.zeros(0, 1)
         networkCurrent = Abar * ib
         vn = sp.zeros(2 * self.n, 1)
         deviceCurrent = sp.zeros(2 * self.n, 1)
@@ -78,9 +81,12 @@ class RLGrid:
             current = Idev.Outputscale * Idev.g.subs(currentSubs, simultaneous=True)
             deviceCurrent[indices[0]], deviceCurrent[indices[1]] = current[0], current[1]
 
-        Ldiag = sp.diag(*[value for item in self.Lsym for value in (item, item)])
-        Rdiag = sp.diag(*[value for item in self.Rsym for value in (item, item)])
-        branchDerivative = Ldiag.inv() * (Abar.T * vn - Rdiag * ib)
+        if self.b:
+            Ldiag = sp.diag(*[value for item in self.Lsym for value in (item, item)])
+            Rdiag = sp.diag(*[value for item in self.Rsym for value in (item, item)])
+            branchDerivative = Ldiag.inv() * (Abar.T * vn - Rdiag * ib)
+        else:
+            branchDerivative = sp.zeros(0, 1)
         stateParts: list[sp.Matrix] = [branchDerivative]
         for i, (Vdev, Idev) in enumerate(zip(self.Vdev, self.Idev)):
             indices = [2 * i, 2 * i + 1]
@@ -95,13 +101,20 @@ class RLGrid:
 
     def _buildSymbolicModel(self) -> None:
         self.f, self.g = self.getStateAndOutputEquationsSym()
-        Jbar = sp.kronecker_product(sp.eye(self.b), sp.Matrix([[0, -1], [1, 0]]))
-        branchInit = self.f[: 2 * self.b, :] - Jbar * sp.Matrix(self.ibsym)
+        if self.b:
+            Jbar = sp.kronecker_product(sp.eye(self.b), sp.Matrix([[0, -1], [1, 0]]))
+            branchInit = self.f[: 2 * self.b, :] - Jbar * sp.Matrix(self.ibsym)
+        else:
+            branchInit = sp.zeros(0, 1)
         self.f_init_sym = sp.MutableDenseMatrix(self.f)
         self.f_init_sym[: 2 * self.b, :] = branchInit
 
-        Abar = sp.kronecker_product(sp.Matrix(self.A), sp.eye(2))
-        networkCurrent = Abar * sp.Matrix(self.ibsym)
+        Abar = (
+            sp.kronecker_product(sp.Matrix(self.A), sp.eye(2))
+            if self.b else sp.zeros(2 * self.n, 0)
+        )
+        branchState = sp.Matrix(self.ibsym) if self.b else sp.zeros(0, 1)
+        networkCurrent = Abar * branchState
         voltageStart = 2 * self.b
         currentStart = voltageStart + 2 * self.n
         nodeVoltage = self.g[voltageStart:currentStart, :]

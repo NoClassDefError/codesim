@@ -36,6 +36,26 @@ function appendInPlace(target: unknown[], source: unknown): void {
 	}
 }
 
+interface Backend {
+	cwd: string;
+	module: string;
+	pythonPath?: string;
+}
+
+/** A codesim checkout (or its codesimpy package), or a PESLite checkout. */
+function detectBackend(directory: string): Backend | undefined {
+	if (fs.existsSync(path.join(directory, 'codesimpy', 'core', 'system.py'))) {
+		return { cwd: directory, module: 'codesimpy.api.cli' };
+	}
+	if (fs.existsSync(path.join(directory, 'core', 'system.py'))) {
+		return { cwd: path.dirname(directory), module: 'codesimpy.api.cli' };
+	}
+	if (fs.existsSync(path.join(directory, 'src', 'peslite', 'frontend', 'service.py'))) {
+		return { cwd: directory, module: 'peslite.frontend', pythonPath: path.join(directory, 'src') };
+	}
+	return undefined;
+}
+
 interface SourceReference {
 	file: string;
 	line?: number;
@@ -182,15 +202,10 @@ class CodeSimHost {
 		if (!selected?.[0]) {
 			return;
 		}
-		const selectedPath = selected[0].fsPath;
-		const backend = fs.existsSync(path.join(selectedPath, 'codesimpy', 'core', 'system.py'))
-			? selectedPath
-			: fs.existsSync(path.join(selectedPath, 'core', 'system.py'))
-				? path.dirname(selectedPath)
-				: undefined;
+		const backend = detectBackend(selected[0].fsPath)?.cwd;
 		if (!backend) {
 			void vscode.window.showErrorMessage(
-				'Select the codesim project directory or its codesimpy package directory.',
+				'Select a codesim project (or its codesimpy directory) or a PESLite checkout.',
 			);
 			return;
 		}
@@ -346,7 +361,7 @@ class CodeSimHost {
 		}
 	}
 
-	private backendPath(): string {
+	private backendPath(): Backend {
 		const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
 		const configuredPaths = new Set<string>();
 		for (const uri of [undefined, ...workspaceFolders.map(({ uri }) => uri)]) {
@@ -373,16 +388,15 @@ class CodeSimHost {
 		}
 		candidates.push(path.resolve(this.context.extensionPath, '..'));
 		for (const candidate of candidates) {
-			if (candidate && fs.existsSync(path.join(candidate, 'codesimpy', 'core', 'system.py'))) {
-				return candidate;
-			}
-			if (candidate && fs.existsSync(path.join(candidate, 'core', 'system.py'))) {
-				return path.dirname(candidate);
+			const backend = candidate ? detectBackend(candidate) : undefined;
+			if (backend) {
+				return backend;
 			}
 		}
 		this.output.appendLine(`[backend] checked: ${candidates.join(' | ')}`);
 		throw new Error(
-			`Cannot find codesimpy/core/system.py. backendPath: ${[...configuredPaths].join(' | ') || '(empty)'}.`,
+			'Cannot find codesimpy/core/system.py or src/peslite/frontend. ' +
+			`backendPath: ${[...configuredPaths].join(' | ') || '(empty)'}.`,
 		);
 	}
 
@@ -471,8 +485,14 @@ class CodeSimHost {
 		const executable = await this.pythonExecutable();
 		this.backendStart = new Promise<void>((resolve, reject) => {
 			this.output.appendLine(`[backend] Python executable: ${executable}`);
-			const process = spawn(executable, ['-u', '-m', 'codesimpy.api.cli'], {
-				cwd: this.backendPath(), windowsHide: true, stdio: 'pipe',
+			const backend = this.backendPath();
+			this.output.appendLine(`[backend] ${backend.module} in ${backend.cwd}`);
+			const env = { ...globalThis.process.env };
+			if (backend.pythonPath) {
+				env.PYTHONPATH = [backend.pythonPath, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
+			}
+			const process = spawn(executable, ['-u', '-m', backend.module], {
+				cwd: backend.cwd, env, windowsHide: true, stdio: 'pipe',
 			});
 			this.backendProcess = process;
 			process.stdout.setEncoding('utf8');

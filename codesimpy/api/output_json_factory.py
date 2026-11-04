@@ -547,6 +547,7 @@ class OutputJsonFactory:
             ("activePower", "P", "pu", "component"),
             ("reactivePower", "Q", "pu", "component"),
             ("busVoltageAngleDeg", "theta", "deg", "component"),
+            ("pccVoltage", "PCC voltage", "pu", "system"),
             ("lvrtMode", "LVRT mode", "", "system"),
         )
         for field, label, unit, ownerKind in plotDefinitions:

@@ -8,8 +8,9 @@ import numpy as np
 
 from ..core import SmallSignalAnalyzer
 from ..systems import (CIGREMV14System, GFLLVRTSystem, HybridGFMGFLSystem,
-                       HybridSystem, IEEE13System, ParallelVSGSystem,
-                       SGSMIBSystem, VSGSMIBAVCSystem, VSGSMIBSystem)
+                       HybridSystem, IEEE13System, ParallelVSGSystem, GFLLVRTSystemCapacitor,
+                       SGSMIBSystem, VSGSMIBAVCSystem, VSGSMIBSystem,
+                       VSGSMIBSystemNoCapacitor)
 from .output_json_factory import OutputJsonFactory
 
 
@@ -17,7 +18,7 @@ SYSTEM_CLASSES = {
     systemClass.__name__: systemClass for systemClass in (
         HybridSystem, HybridGFMGFLSystem, VSGSMIBSystem, VSGSMIBAVCSystem,
         GFLLVRTSystem, ParallelVSGSystem, SGSMIBSystem, IEEE13System,
-        CIGREMV14System,
+        CIGREMV14System, GFLLVRTSystemCapacitor, VSGSMIBSystemNoCapacitor
     )
 }
 

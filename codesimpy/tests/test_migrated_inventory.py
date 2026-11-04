@@ -7,14 +7,14 @@ import codesimpy
 from codesimpy.systems import (
     CIGREMV14System, GFLLVRTSystem, HybridGFMGFLSystem, HybridSystem,
     IEEE13System, ParallelVSGSystem, SGSMIBSystem, VSGSMIBAVCSystem,
-    VSGSMIBSystem,
+    VSGSMIBSystem, VSGSMIBSystemNoCapacitor,
 )
 
 
 SYSTEM_CLASSES = (
     HybridSystem, HybridGFMGFLSystem, VSGSMIBSystem, VSGSMIBAVCSystem,
     GFLLVRTSystem, ParallelVSGSystem, SGSMIBSystem, IEEE13System,
-    CIGREMV14System,
+    CIGREMV14System, VSGSMIBSystemNoCapacitor,
 )
 
 
@@ -66,13 +66,35 @@ class MigratedInventoryTests(unittest.TestCase):
     def test_gfl_lvrt_initializes_directly(self):
         parameters = GFLLVRTSystem.defaultParameters()
         system = GFLLVRTSystem(parameters)
-        self.assertEqual(system.devices["capacitor"].p["C"]["num"], 0.068)
-        self.assertEqual(system.devices["capacitor"].p["Gd"]["num"], 0.0)
-        expected = {"Kad": 0.2, "wAD": 10.0, "K1": 0.3, "Id2": 1.0}
+        self.assertEqual(system.network["A"].shape, (1, 0))
+        self.assertEqual(system.busNames, ["PCC / Infinite bus"])
+        self.assertNotIn("capacitor", system.devices)
+        self.assertEqual(len(system.devices["gfl"].x), 6)
+        self.assertEqual(system.devices["gfl"].p["Rg"]["num"], parameters["Rg"])
+        self.assertEqual(system.devices["gfl"].p["Lg"]["num"], parameters["Lg"])
+        expected = {"K1": 0.3, "Id2": 1.0}
         for name, value in expected.items():
             with self.subTest(parameter=name):
                 self.assertEqual(parameters[name], value)
                 self.assertEqual(system.devices["gfl"].p[name]["num"], value)
+        for name in ("Kad", "wAD", "Klvrt"):
+            self.assertNotIn(name, parameters)
+            self.assertNotIn(name, system.devices["gfl"].p)
+
+    def test_gfl_lvrt_logs_internal_pcc_voltage_for_frontend(self):
+        parameters = GFLLVRTSystem.defaultParameters({"validationTime_s": 1e-3})
+        system = GFLLVRTSystem(parameters)
+        simulation = system.simulate(np.array([0.0, 1e-3]), saveSnapshot=False)
+        frontendSignals = system.outputJsonFactory.buildSignals(simulation)
+        pccSignals = [
+            signal for signal in frontendSignals
+            if signal["label"].startswith("PCC voltage-")
+        ]
+        self.assertEqual(len(pccSignals), 1)
+        self.assertEqual(pccSignals[0]["unit"], "pu")
+        np.testing.assert_allclose(
+            pccSignals[0]["values"], simulation["signals"]["pccVoltage"],
+        )
 
     def test_hybrid_gfm_gfl_reduces_cigre_to_four_nodes(self):
         system = HybridGFMGFLSystem(HybridGFMGFLSystem.defaultParameters())
@@ -98,7 +120,7 @@ class MigratedInventoryTests(unittest.TestCase):
     def test_all_components_are_exposed(self):
         for name in ("Capacitor", "CPL", "GFLLongTerm", "GFLVSC",
                      "InductionMotor", "Infbus", "PQLoad", "SG", "VSGCC",
-                     "VSGCCAVC", "VSGCL", "VSGLongTerm", "ZeroCurrent", "ZIP"):
+                     "VSGCCAVC", "VSGCL", "VSGNoCapacitor", "ZeroCurrent", "ZIP"):
             self.assertTrue(hasattr(codesimpy, name), name)
 
 

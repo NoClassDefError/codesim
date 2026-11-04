@@ -32,7 +32,10 @@ class StdioServiceTests(unittest.TestCase):
             set(result["parameters"]),
             {row["id"] for row in result["descriptor"]["system"]["parameters"]},
         )
-        self.assertTrue({"Kad", "wAD", "K1", "Id2"} <= result["parameters"].keys())
+        self.assertTrue({"K1", "Id2"} <= result["parameters"].keys())
+        self.assertTrue(
+            {"Kad", "wAD", "Klvrt"}.isdisjoint(result["parameters"])
+        )
 
     def test_resident_protocol_lists_systems_and_shuts_down(self):
         process = subprocess.Popen(
