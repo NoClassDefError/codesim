@@ -64,7 +64,10 @@ class GFLLVRTSystemCapacitor(System):
         gridIdx = [self.stateNames.index(str(symbol)) for symbol in self.devices["source"].x]
         voltage, branch = net["busVoltage"], net["branchCurrent"]
         id, iq = state[:, gflIdx[0]], state[:, gflIdx[1]]
-        thetaPLL, xPLL = state[:, gflIdx[4]], state[:, gflIdx[5]]
+        # GFLVSC has 8 states (with outer-loop PI), so look theta/xPLL up by name, not position.
+        gflNames = [str(symbol) for symbol in gfl.x]
+        thetaPLL = state[:, gflIdx[gflNames.index(f"theta{gfl.index}")]]
+        xPLL = state[:, gflIdx[gflNames.index(f"xPLL{gfl.index}")]]
         pccVoltage, gridVoltage = np.abs(voltage[:, 0]), np.abs(voltage[:, 1])
         vd = voltage[:, 0].real * np.cos(thetaPLL) + voltage[:, 0].imag * np.sin(thetaPLL)
         vq = -voltage[:, 0].real * np.sin(thetaPLL) + voltage[:, 0].imag * np.cos(thetaPLL)

@@ -246,6 +246,197 @@ class TransientVoltageAnalyzer:
             emtState[:, fast] = solution.y.T
         return emtState
 
+    def qss_map(
+        self,
+        operatingPoint: Mapping[str, Any],
+        scanStates: Mapping[str, Iterable[float]],
+        *,
+        heldStateNames: Iterable[str] = (),
+        offsets: Mapping[str, float] | None = None,
+        busNames: str | Iterable[str] | None = None,
+        modeFunctions: Mapping[str, Callable[[np.ndarray, np.ndarray], bool]] | None = None,
+        returnStates: bool = False,
+    ) -> dict[str, Any]:
+        """Zeroth-order QSS voltage map over a grid of frozen slow states.
+
+        For every point of the Cartesian grid ``scanStates`` (e.g.
+        ``{"delta_vsg": d, "theta_gfl": t}``), the scanned states are set to
+        ``value + offsets[name]``. They are held together with
+        ``heldStateNames``, ``system.qssRequiredSlowStateNames`` and every
+        state without an initialization residual (frame angles). The
+        remaining fast states are solved from ``f_fast = 0``. This is the
+        model-based ``v_t = f(delta, theta)`` of the zeroth-order QSS model.
+
+        ``operatingPoint`` supplies the base ``state`` and ``reference``, for
+        example from ``system.initialize`` or one simulation sample. Use
+        ``offsets`` to express the scan in grid-relative angles. For a
+        ``VSGCC`` the grid-relative internal angle is
+        ``delta + theta_vsg - theta_grid``, and for a PLL it is
+        ``theta_pll - theta_grid``.
+
+        ``modeFunctions`` maps a label to ``f(state, reference) -> bool``.
+        By default it detects converter current limiting (``|iref| > Imax``
+        on devices with ``irefd``/``irefq`` states) and GFL FRT
+        (``|v_bus| < Vth`` on current devices with a ``Vth`` parameter).
+        ``modeCode`` packs these as 0 normal, 1 FRT, 2 limiting, 3 both.
+        """
+        system, grid = self.system, self.system.rlGrid
+        names = list(scanStates)
+        axes = [np.asarray(scanStates[name], dtype=float).reshape(-1) for name in names]
+        offsets = dict(offsets or {})
+        if not names or any(name not in system.stateNames for name in names):
+            raise ValueError("scanStates must name known states")
+        if set(offsets) - set(names):
+            raise ValueError("offsets may only refer to scanned states")
+        baseState = np.asarray(operatingPoint["state"], dtype=float).reshape(-1).copy()
+        reference = np.asarray(operatingPoint["reference"], dtype=float).reshape(-1)
+
+        requested = names + [n for n in heldStateNames if n not in names]
+        slowNames = requested + [
+            n for n in getattr(system, "qssRequiredSlowStateNames", ()) if n not in requested
+        ]
+        if any(n not in system.stateNames for n in slowNames):
+            raise ValueError("heldStateNames must contain known states")
+        slow = {system.stateNames.index(n) for n in slowNames}
+        held = slow | (set(range(baseState.size)) - set(grid.fInitStateIndices))
+        fast = np.array([i for i in range(baseState.size) if i not in held], dtype=int)
+        if not fast.size:
+            raise ValueError("at least one state must remain fast")
+        heldNames = [system.stateNames[i] for i in sorted(held)]
+        scanIndices = [system.stateNames.index(n) for n in names]
+
+        selectedBuses = (list(system.busNames) if busNames is None
+                         else [busNames] if isinstance(busNames, str) else list(busNames))
+        if any(n not in system.busNames for n in selectedBuses):
+            raise ValueError("busNames must contain known buses")
+        buses = [system.busNames.index(n) for n in selectedBuses]
+        if modeFunctions is None:
+            modeFunctions = self._defaultModeFunctions()
+
+        shape = tuple(axis.size for axis in axes)
+        voltage = np.full((*shape, len(buses)), np.nan + 1j * np.nan)
+        converged = np.zeros(shape, dtype=bool)
+        residual = np.full(shape, np.inf)
+        flags = {label: np.zeros(shape, dtype=bool) for label in modeFunctions}
+        states = np.full((*shape, baseState.size), np.nan) if returnStates else None
+        solutions: dict[tuple[int, ...], np.ndarray] = {}
+        grid.refreshParameters()
+        baselineFast = baseState[fast].copy()
+        previous = None
+        for index in self._serpentine(shape):
+            candidate = baseState.copy()
+            for axisNumber, stateIndex in enumerate(scanIndices):
+                name = names[axisNumber]
+                candidate[stateIndex] = axes[axisNumber][index[axisNumber]] + offsets.get(name, 0.0)
+
+            def functions(x, candidate=candidate):
+                candidate[fast] = x
+                return self.get_functions(candidate, reference, heldNames)
+
+            seeds = [seed for seed in (
+                previous,
+                solutions.get((index[0] - 1, *index[1:])) if index[0] else None,
+                baselineFast,
+            ) if seed is not None]
+            try:
+                solution, pointResidual = self._solveZeroOrder(functions, seeds)
+            except RuntimeError:
+                previous = None
+                continue
+            candidate[fast] = solution
+            solutions[index] = previous = solution
+            converged[index], residual[index] = True, pointResidual
+            flat = np.asarray(grid.g_numeric(candidate, reference)[1], dtype=float)
+            voltage[index] = (flat[::2] + 1j * flat[1::2])[buses]
+            for label, function in modeFunctions.items():
+                flags[label][index] = bool(function(candidate, reference))
+            if states is not None:
+                states[index] = candidate
+
+        frt = np.zeros(shape, dtype=bool)
+        limit = np.zeros(shape, dtype=bool)
+        for label, values in flags.items():
+            if label.startswith("frt"):
+                frt |= values
+            elif label.startswith("currentLimit"):
+                limit |= values
+        modeCode = np.where(converged, frt.astype(int) + 2 * limit.astype(int), -1)
+        result = {
+            "scanStateNames": names, "axes": axes, "offsets": offsets,
+            "busNames": selectedBuses, "heldStateNames": heldNames,
+            "fastStateNames": [system.stateNames[i] for i in fast],
+            "voltage": voltage, "voltageMagnitude": np.abs(voltage),
+            "converged": converged, "residualNorm": residual,
+            "modeFlags": flags, "modeCode": modeCode,
+            "modeLabels": ["normal", "frt", "limit", "both"],
+        }
+        if states is not None:
+            result["state"] = states
+        self.latestQssMap = result
+        return result
+
+    def _defaultModeFunctions(self) -> dict[str, Callable[[np.ndarray, np.ndarray], bool]]:
+        system, grid = self.system, self.system.rlGrid
+        functions: dict[str, Callable[[np.ndarray, np.ndarray], bool]] = {}
+        for node, (voltageDevice, currentDevice) in enumerate(zip(grid.Vdev, grid.Idev)):
+            for device in (voltageDevice, currentDevice):
+                stateNames = [str(symbol) for symbol in device.x]
+                limitStates = [f"irefd{device.index}", f"irefq{device.index}"]
+                if "Imax" in device.p and all(n in stateNames for n in limitStates):
+                    indices = [system.stateNames.index(n) for n in limitStates]
+                    functions[f"currentLimit{device.index}"] = (
+                        lambda state, reference, i=indices, d=device:
+                        np.hypot(state[i[0]], state[i[1]]) > float(d.p["Imax"]["num"])
+                    )
+                if device.type == "Current" and "Vth" in device.p:
+                    def frt(state, reference, node=node, d=device):
+                        flat = np.asarray(grid.g_numeric(state, reference)[1], dtype=float)
+                        magnitude = d.Inputscale * np.hypot(flat[2 * node], flat[2 * node + 1])
+                        return magnitude < float(d.p["Vth"]["num"])
+                    functions[f"frt{device.index}"] = frt
+        return functions
+
+    @staticmethod
+    def _serpentine(shape: tuple[int, ...]):
+        """Visit grid indices so consecutive points are neighbours (warm starts)."""
+        if len(shape) == 1:
+            yield from ((i,) for i in range(shape[0]))
+            return
+        for outer in np.ndindex(shape[:-1]):
+            inner = range(shape[-1]) if sum(outer) % 2 == 0 else range(shape[-1] - 1, -1, -1)
+            for i in inner:
+                yield (*outer, i)
+
+    def _solveZeroOrder(self, functions, seeds) -> tuple[np.ndarray, float]:
+        """Solve ``f_fast = 0`` from several seeds; return the first acceptable root."""
+        unique: list[np.ndarray] = []
+        for seed in seeds:
+            seed = np.asarray(seed, dtype=float)
+            if not any(np.array_equal(seed, other) for other in unique):
+                unique.append(seed)
+        zero = None
+        bestResidual = np.inf
+        for seed in unique:
+            try:
+                trial = least_squares(
+                    lambda x: functions(x)[0], seed,
+                    jac=lambda x: functions(x)[2],
+                    xtol=self._SOLVER_TOLERANCE,
+                    ftol=self._SOLVER_TOLERANCE,
+                    gtol=self._SOLVER_TOLERANCE,
+                )
+            except (FloatingPointError, ValueError, np.linalg.LinAlgError):
+                continue
+            residual = float(np.linalg.norm(trial.fun, ord=np.inf))
+            if residual < bestResidual:
+                zero, bestResidual = trial, residual
+            if np.isfinite(residual) and residual <= self._QSS_RESIDUAL_TOLERANCE:
+                break
+        if (zero is None or not np.isfinite(bestResidual)
+                or bestResidual > self._QSS_RESIDUAL_TOLERANCE):
+            raise RuntimeError("zero-order QSS solve failed")
+        return zero.x, bestResidual
+
     def get_functions(self, state, reference, slowStateNames):
         """
         Get f1 f2 by system.rlGrid.f_init.
@@ -320,31 +511,7 @@ class TransientVoltageAnalyzer:
         seeds = [simulatedFastState] if guess is None else [
             np.asarray(guess, dtype=float), simulatedFastState,
         ]
-        if len(seeds) == 2 and np.array_equal(seeds[0], seeds[1]):
-            seeds.pop()
-        zero = None
-        bestResidual = np.inf
-        for seed in seeds:
-            try:
-                trial = least_squares(
-                    lambda x: functions(x)[0], seed,
-                    jac=lambda x: functions(x)[2],
-                    xtol=self._SOLVER_TOLERANCE,
-                    ftol=self._SOLVER_TOLERANCE,
-                    gtol=self._SOLVER_TOLERANCE,
-                )
-            except (FloatingPointError, ValueError, np.linalg.LinAlgError):
-                continue
-            residual = float(np.linalg.norm(trial.fun, ord=np.inf))
-            if residual < bestResidual:
-                zero, bestResidual = trial, residual
-            if np.isfinite(residual) and residual <= self._QSS_RESIDUAL_TOLERANCE:
-                zero, bestResidual = trial, residual
-                break
-        if (zero is None or not np.isfinite(bestResidual)
-                or bestResidual > self._QSS_RESIDUAL_TOLERANCE):
-            raise RuntimeError("zero-order QSS solve failed")
-        x1_zero = zero.x
+        x1_zero, _ = self._solveZeroOrder(functions, seeds)
 
         def firstResidual(x):
             f1, _, pf1x1, pf1x2 = functions(x)

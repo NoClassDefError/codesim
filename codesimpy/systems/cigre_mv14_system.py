@@ -2,8 +2,37 @@
 
 import numpy as np
 
-from ..components import Capacitor, GFLVSC, Infbus, VSGCC, ZeroCurrent
+from ..components import Capacitor, GFLVSC, GFLVSCNoOuterLoop, Infbus, VSGCC, ZeroCurrent
 from ..core import System
+
+GFL_MODELS = ("GFLVSC", "GFLVSCNoOuterLoop")
+
+
+def buildGFL(p, index):
+    """GFL at bus 7: ``GFLVSC`` (P/Q outer loops) or ``GFLVSCNoOuterLoop``.
+
+    ``GFLVSCNoOuterLoop`` takes current references directly. ``GFLPref`` is
+    then the d-axis current and ``GFLQref`` the reactive current
+    (``Iqref = -GFLQref``, so ``Q = V GFLQref``), both on the GFL base.
+    Returns the device and its reference values.
+    """
+    model = p.get("gflModel", "GFLVSC")
+    if model not in GFL_MODELS:
+        raise ValueError(f"gflModel must be one of {GFL_MODELS}")
+    deviceClass = GFLVSC if model == "GFLVSC" else GFLVSCNoOuterLoop
+    gfl = deviceClass(1, p.get("GFLSbase_VA", 1.5e6), index)
+    for sourceName, targetName in (
+        ("GFLLf", "L"), ("GFLKpCc", "Kpcc"), ("GFLKiCc", "Kicc"),
+        ("GFLKpPll", "KpPll"), ("GFLKiPll", "KiPll"),
+        ("GFLKpP", "kpP"), ("GFLKiP", "kiP"),
+        ("GFLKpQ", "kpQ"), ("GFLKiQ", "kiQ"),
+        ("GFLVth", "Vth"), ("GFLK1", "K1"), ("GFLId2", "Id2"), ("GFLImax", "Imax"),
+    ):
+        if sourceName in p and targetName in gfl.p:
+            gfl.p[targetName]["num"] = p[sourceName]
+    Pref, Qref = p.get("GFLPref", 1), p.get("GFLQref", 0)
+    references = (Pref, Qref) if model == "GFLVSC" else (Pref, -Qref)
+    return gfl, references
 
 
 class CIGREMV14System(System):
@@ -23,7 +52,7 @@ class CIGREMV14System(System):
             "recoveryComplete_s": 0.2501, "faultVoltage": 0.1,
             "validationTime_s": 1, "outputStep_s": 1e-4,
             "maximumStep_tau": 2e-3, "clearMode": "time",
-            "residualTolerance": 1e-4,
+            "residualTolerance": 1e-4, "gflModel": "GFLVSC",
         }
         if overrides.get("clearMode") == "angle":
             p.update({"faultStart_s": 0.20, "faultComplete_s": 0.201,
@@ -68,17 +97,9 @@ class CIGREMV14System(System):
                 for symbol, value in zip(vsg.uref, (p["VSGPref"], p["VSGVref"], p["VSGwref"])):
                     referenceMap[str(symbol)] = value
             if nodeIndex == gflNode:
-                gfl = GFLVSC(1, p.get("GFLSbase_VA", 1.5e6), "cigre_gfl_bus7")
-                for sourceName, targetName in (
-                    ("GFLLf", "L"), ("GFLKpCc", "Kpcc"), ("GFLKiCc", "Kicc"),
-                    ("GFLKpPll", "KpPll"), ("GFLKiPll", "KiPll"),
-                    ("GFLKpP", "kpP"), ("GFLKiP", "kiP"),
-                    ("GFLKpQ", "kpQ"), ("GFLKiQ", "kiQ"),
-                ):
-                    if sourceName in p:
-                        gfl.p[targetName]["num"] = p[sourceName]
-                referenceMap[str(gfl.uref[0])] = p.get("GFLPref", 1)
-                referenceMap[str(gfl.uref[1])] = p.get("GFLQref", 0)
+                gfl, gflReferences = buildGFL(p, "cigre_gfl_bus7")
+                for symbol, value in zip(gfl.uref, gflReferences):
+                    referenceMap[str(symbol)] = value
                 currentDevices[nodeIndex] = gfl
             else:
                 currentDevices[nodeIndex] = ZeroCurrent(1, p["Sbase_VA"], f"{deviceIndex}_zero")

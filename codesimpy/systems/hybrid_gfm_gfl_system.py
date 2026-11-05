@@ -2,9 +2,9 @@
 
 import numpy as np
 
-from ..components import Capacitor, GFLVSC, Infbus, VSGCC, ZeroCurrent
+from ..components import Capacitor, Infbus, VSGCC, ZeroCurrent
 from ..core import System
-from .cigre_mv14_system import CIGREMV14System
+from .cigre_mv14_system import CIGREMV14System, buildGFL
 
 
 class HybridGFMGFLSystem(System):
@@ -17,10 +17,16 @@ class HybridGFMGFLSystem(System):
 
     @staticmethod
     def defaultParameters(overrides=None):
+        """CIGRE defaults plus ``upstreamScale`` (multiplies the R and L of the
+        upstream source--8 equivalent; >1 weakens the grid)."""
+        overrides = dict(overrides or {})
+        overrides.setdefault("upstreamScale", 1.0)
         return CIGREMV14System.defaultParameters(overrides)
 
     def __init__(self, p):
-        incidence, branchR, branchL, busNames, busCapacitance = self.buildReducedNetwork()
+        incidence, branchR, branchL, busNames, busCapacitance = self.buildReducedNetwork(
+            p.get("upstreamScale", 1.0)
+        )
         _, gflNode, middleNode, vsgNode = range(4)
 
         source = Infbus(1, p["Sbase_VA"], "hybrid_cigre_infbus")
@@ -33,14 +39,7 @@ class HybridGFMGFLSystem(System):
             capacitor.p["Gd"]["num"] = 0
             capacitor.p["w"]["num"] = 1
 
-        gfl = GFLVSC(1, p["GFLSbase_VA"], "hybrid_cigre_gfl_bus7")
-        for sourceName, targetName in (
-            ("GFLLf", "L"), ("GFLKpCc", "Kpcc"), ("GFLKiCc", "Kicc"),
-            ("GFLKpPll", "KpPll"), ("GFLKiPll", "KiPll"),
-            ("GFLKpP", "kpP"), ("GFLKiP", "kiP"),
-            ("GFLKpQ", "kpQ"), ("GFLKiQ", "kiQ"),
-        ):
-            gfl.p[targetName]["num"] = p[sourceName]
+        gfl, gflReferences = buildGFL(p, "hybrid_cigre_gfl_bus7")
 
         vsg = VSGCC(1, p["VSGSbase_VA"], "hybrid_cigre_vsg_bus9")
         for name, value in (
@@ -62,8 +61,8 @@ class HybridGFMGFLSystem(System):
         clearingTime_s = np.inf if p["clearMode"] == "angle" else p["recoveryStart_s"]
         references = {
             str(source.uref[0]): lambda t: self.sourceVoltage(t, p),
-            str(gfl.uref[0]): p["GFLPref"],
-            str(gfl.uref[1]): p["GFLQref"],
+            str(gfl.uref[0]): gflReferences[0],
+            str(gfl.uref[1]): gflReferences[1],
             str(vsg.uref[0]): p["VSGPref"],
             str(vsg.uref[1]): p["VSGVref"],
             str(vsg.uref[2]): p["VSGwref"],
@@ -92,7 +91,7 @@ class HybridGFMGFLSystem(System):
         # the conditional equilibrium altogether.
         self.qssRequiredSlowStateNames = [
             str(gfl.x[4]), str(gfl.x[5]),
-        ]
+        ] if p.get("gflModel", "GFLVSC") == "GFLVSC" else []
         self.eventName = "faultClearing"
         self.eventDirection = 1
         self.eventTime_s = clearingTime_s
@@ -101,8 +100,11 @@ class HybridGFMGFLSystem(System):
         self.eventStateIndex = self.stateNames.index(f"delta{vsg.index}")
 
     @staticmethod
-    def buildReducedNetwork():
-        """Build the four-node corridor from the original CIGRE branch data."""
+    def buildReducedNetwork(upstreamScale=1.0):
+        """Build the four-node corridor from the original CIGRE branch data.
+
+        ``upstreamScale`` multiplies R and L of the upstream equivalent (its
+        line capacitance is kept)."""
         rows = {
             (fromNode, toNode): (R, L, C)
             for fromNode, toNode, R, L, C
@@ -110,6 +112,7 @@ class HybridGFMGFLSystem(System):
         }
         upstreamPath = [("source", "1"), ("1", "2"), ("2", "3"), ("3", "8")]
         upstream = np.sum([rows[branch] for branch in upstreamPath], axis=0)
+        upstream = upstream * np.array([upstreamScale, upstreamScale, 1.0])
         reducedBranches = [upstream, rows[("7", "8")], rows[("8", "9")]]
 
         busNames = ["Infinite bus", "7", "8", "9"]
