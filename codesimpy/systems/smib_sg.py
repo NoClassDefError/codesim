@@ -1,4 +1,4 @@
-"""Synchronous generator connected to an infinite bus."""
+"""SMIB__SG: Synchronous generator connected to an infinite bus."""
 
 from time import perf_counter
 
@@ -9,7 +9,8 @@ from ..components import Capacitor, Infbus, SG, ZeroCurrent
 from ..core import System
 
 
-class SGSMIBSystem(System):
+class SMIB__SG(System):
+    """SMIB · SG: synchronous generator with a terminal capacitor on an infinite bus."""
     @staticmethod
     def defaultParameters(overrides=None):
         p = {
@@ -45,7 +46,7 @@ class SGSMIBSystem(System):
                 str(sg.uref[3]): 1.0, str(source.uref[0]): p["gridVoltage"]}
         network = {"A": np.array([[1.0], [-1.0]]), "R": [p["Rg"]], "L": [p["Lg"]],
                    "busNames": ["SG PCC", "Infinite bus"]}
-        super().__init__("SGSMIBSystem", network, devices,
+        super().__init__(type(self).__name__, network, devices,
                          {"Vbase": p["Vbase"], "Sbase": p["Sbase"], "frequency_Hz": p["frequency_Hz"]}, refs)
         self.solverSettings["max_step"] = 5e-3 / (2 * np.pi * p["frequency_Hz"])
         self.parameters, self.parameterNames = p, list(p)

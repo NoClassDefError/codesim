@@ -1,25 +1,18 @@
-"""CIGRE MV14 feeder with converters at buses 7 and 9."""
+"""CIGRE14__GFM_A_C_LC__GFL_P_F_L, CIGRE14__GFM_A_C_LC__GFL_C_F_L: full CIGRE MV feeder with converters at buses 7 and 9."""
 
 import numpy as np
 
-from ..components import Capacitor, GFLVSC, GFLVSCNoOuterLoop, Infbus, VSGCC, ZeroCurrent
+from ..components import Capacitor, GFL_C_F_L, GFL_P_F_L, GFM_A_C_LC, Infbus, ZeroCurrent
 from ..core import System
 
-GFL_MODELS = ("GFLVSC", "GFLVSCNoOuterLoop")
+def buildGFL(p, index, deviceClass):
+    """GFL at bus 7 of class ``GFL_P_F_L`` (P/Q outer loops) or ``GFL_C_F_L``.
 
-
-def buildGFL(p, index):
-    """GFL at bus 7: ``GFLVSC`` (P/Q outer loops) or ``GFLVSCNoOuterLoop``.
-
-    ``GFLVSCNoOuterLoop`` takes current references directly. ``GFLPref`` is
+    ``GFL_C_F_L`` takes current references directly. ``GFLPref`` is
     then the d-axis current and ``GFLQref`` the reactive current
     (``Iqref = -GFLQref``, so ``Q = V GFLQref``), both on the GFL base.
     Returns the device and its reference values.
     """
-    model = p.get("gflModel", "GFLVSC")
-    if model not in GFL_MODELS:
-        raise ValueError(f"gflModel must be one of {GFL_MODELS}")
-    deviceClass = GFLVSC if model == "GFLVSC" else GFLVSCNoOuterLoop
     gfl = deviceClass(1, p.get("GFLSbase_VA", 1.5e6), index)
     for sourceName, targetName in (
         ("GFLLf", "L"), ("GFLKpCc", "Kpcc"), ("GFLKiCc", "Kicc"),
@@ -31,11 +24,14 @@ def buildGFL(p, index):
         if sourceName in p and targetName in gfl.p:
             gfl.p[targetName]["num"] = p[sourceName]
     Pref, Qref = p.get("GFLPref", 1), p.get("GFLQref", 0)
-    references = (Pref, Qref) if model == "GFLVSC" else (Pref, -Qref)
+    references = (Pref, Qref) if deviceClass is GFL_P_F_L else (Pref, -Qref)
     return gfl, references
 
 
-class CIGREMV14System(System):
+class _CIGRE14(System):
+    """Full CIGRE MV feeder; the GFL class is ``GFL`` (set by the public classes below)."""
+    GFL = GFL_P_F_L
+
     @staticmethod
     def defaultParameters(overrides=None):
         overrides = dict(overrides or {})
@@ -52,7 +48,7 @@ class CIGREMV14System(System):
             "recoveryComplete_s": 0.2501, "faultVoltage": 0.1,
             "validationTime_s": 1, "outputStep_s": 1e-4,
             "maximumStep_tau": 2e-3, "clearMode": "time",
-            "residualTolerance": 1e-4, "gflModel": "GFLVSC",
+            "residualTolerance": 1e-4,
         }
         if overrides.get("clearMode") == "angle":
             p.update({"faultStart_s": 0.20, "faultComplete_s": 0.201,
@@ -88,7 +84,7 @@ class CIGREMV14System(System):
                 capacitor.p["C"]["num"], capacitor.p["Gd"]["num"], capacitor.p["w"]["num"] = busCapacitance[nodeIndex], 0, 1
                 voltageDevices[nodeIndex] = capacitor
             if nodeIndex == vsgNode:
-                vsg = VSGCC(1, p["VSGSbase_VA"], "cigre_vsg_bus9")
+                vsg = GFM_A_C_LC(1, p["VSGSbase_VA"], "cigre_vsg_bus9")
                 for name, value in (("Lv", 0.3), ("Rv", 0.1), ("Lf", 0.07), ("Imax", 1.5),
                                     ("Kp", 0.05), ("Kp_cc", 20), ("Ki_cc", 5)):
                     vsg.p[name]["num"] = value
@@ -97,7 +93,7 @@ class CIGREMV14System(System):
                 for symbol, value in zip(vsg.uref, (p["VSGPref"], p["VSGVref"], p["VSGwref"])):
                     referenceMap[str(symbol)] = value
             if nodeIndex == gflNode:
-                gfl, gflReferences = buildGFL(p, "cigre_gfl_bus7")
+                gfl, gflReferences = buildGFL(p, "cigre_gfl_bus7", self.GFL)
                 for symbol, value in zip(gfl.uref, gflReferences):
                     referenceMap[str(symbol)] = value
                 currentDevices[nodeIndex] = gfl
@@ -106,7 +102,7 @@ class CIGREMV14System(System):
         devices = {"Vdev": voltageDevices, "Idev": currentDevices, "source": source,
                    "gfl": gfl, "vsg": vsg}
         network = {"A": incidence, "R": branchR, "L": branchL, "busNames": nodeNames}
-        super().__init__("CIGREMV14System", network, devices,
+        super().__init__(type(self).__name__, network, devices,
                          {"Vbase": 1, "Sbase": p["Sbase_VA"], "frequency_Hz": p["frequency_Hz"]}, referenceMap)
         self.solverSettings = {
             "method": "DOP853",
@@ -192,3 +188,15 @@ class CIGREMV14System(System):
         signals["delta"] = (delta + np.pi) % (2 * np.pi) - np.pi
         signals["dot_delta"] = np.gradient(np.unwrap(delta), time_s) if len(time_s) > 1 else np.zeros_like(delta)
         return signals
+
+
+class CIGRE14__GFM_A_C_LC__GFL_P_F_L(_CIGRE14):
+    """CIGRE14 · GFM_A_C_LC at bus 9 (virtual admittance + current PI, circular current-reference limit; its
+    capacitor is the bus-9 line capacitance) + GFL_P_F_L at bus 7 (outer P/Q loops, FRT current priority, no
+    filter capacitor). Full feeder with loads and line capacitances."""
+    GFL = GFL_P_F_L
+
+
+class CIGRE14__GFM_A_C_LC__GFL_C_F_L(_CIGRE14):
+    """CIGRE14 · as ``CIGRE14__GFM_A_C_LC__GFL_P_F_L`` with GFL_C_F_L at bus 7 (current references, no outer loop)."""
+    GFL = GFL_C_F_L

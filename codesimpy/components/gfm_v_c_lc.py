@@ -1,4 +1,4 @@
-"""Grid-forming converter with PI voltage and current control."""
+"""GFM_V_C_LC: Grid-forming converter with PI voltage and current control."""
 
 import numpy as np
 import sympy as sp
@@ -6,7 +6,9 @@ import sympy as sp
 from ..core import Device
 
 
-class VSGCCAVC(Device):
+class GFM_V_C_LC(Device):
+    """GFM · V: voltage PI + current PI · C: circular limit on the current reference · LC: terminal capacitor in the device (voltage port)."""
+
     def __init__(self, Vb, Sb, index):
         super().__init__(Vb, Sb, "Voltage", index, {
             "C": 0.068, "Lf": 0.07, "Imax": 1.5, "Kp": 0.05,

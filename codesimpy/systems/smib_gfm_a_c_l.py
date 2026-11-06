@@ -1,15 +1,16 @@
-"""No-capacitor VSG connected directly to an infinite bus."""
+"""SMIB__GFM_A_C_L: no-capacitor GFM connected directly to an infinite bus."""
 
 from typing import Any
 
 import numpy as np
 
-from ..components import Infbus, VSGNoCapacitor
+from ..components import GFM_A_C_L, Infbus
 from ..core import System
 
 
-class VSGSMIBSystemNoCapacitor(System):
-    """SMIB benchmark with the grid impedance embedded in the VSG device."""
+class SMIB__GFM_A_C_L(System):
+    """SMIB · GFM_A_C_L: virtual admittance + current PI, circular current-reference limit, no terminal
+    capacitor; the grid impedance is embedded in the device (current port)."""
 
     @staticmethod
     def defaultParameters(overrides=None):
@@ -39,7 +40,7 @@ class VSGSMIBSystemNoCapacitor(System):
         return p
 
     def __init__(self, p: dict[str, Any]) -> None:
-        vsg = VSGNoCapacitor(p["Vbase"], p["Sbase"], "vsg")
+        vsg = GFM_A_C_L(p["Vbase"], p["Sbase"], "vsg")
         for name in ("Lf", "Rv", "Lv", "Rg", "Lg", "Imax", "Kp", "Kp_cc", "Ki_cc"):
             vsg.p[name]["num"] = p[name]
 
@@ -55,7 +56,7 @@ class VSGSMIBSystemNoCapacitor(System):
             "vsg": vsg, "source": source,
         }
         # There is one physical node and no explicit branch. Rg/Lg live in
-        # VSGNoCapacitor, including the line-inductor transient, and reconstruct
+        # GFM_A_C_L, including the line-inductor transient, and reconstruct
         # the converter-side PCC.
         network = {
             "A": np.empty((1, 0)), "R": [], "L": [],
@@ -65,7 +66,7 @@ class VSGSMIBSystemNoCapacitor(System):
             "Vbase": p["Vbase"], "Sbase": p["Sbase"],
             "frequency_Hz": p["frequency_Hz"],
         }
-        super().__init__("VSGSMIBSystemNoCapacitor", network, devices, base, refs)
+        super().__init__(type(self).__name__, network, devices, base, refs)
         self.solverSettings = {
             "method": "RK45",
             "max_step": 5e-3 / (2 * np.pi * self.base["frequency_Hz"]),

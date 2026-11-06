@@ -7,23 +7,13 @@ from .core import (
     System,
     TransientVoltageAnalyzer,
 )
-from .components import (Capacitor, CPL, GFLLongTerm, GFLVSC, GFMAVI, Infbus,
-                         InductionMotor, PQLoad, SG, VSGCC, VSGCCAVC,
-                         VSGCL, VSGNoCapacitor, ZIP, ZeroCurrent)
-from .systems import (CIGREMV14System, GFLLVRTSystem, GFMSMIBAVI, HybridGFMGFLSystem,
-                      HybridSystem, IEEE13System, ParallelVSGSystem, SGSMIBSystem,
-                      VSGSMIBAVCSystem, VSGSMIBSystem,
-                      VSGSMIBSystemNoCapacitor)
+from .components import *  # noqa: F401,F403  (device classes, see codesimpy.components)
+from .components import __all__ as _DEVICES
+from .systems import *  # noqa: F401,F403  (system classes, see codesimpy.systems)
+from .systems import __all__ as _SYSTEMS
 from .api import OutputJsonFactory
 
 __all__ = [
     "Device", "RLGrid", "System", "SmallSignalAnalyzer",
     "TransientVoltageAnalyzer", "OutputJsonFactory",
-    "Capacitor", "CPL", "GFLLongTerm", "GFLVSC", "GFMAVI", "Infbus",
-    "InductionMotor", "PQLoad", "SG", "VSGCC", "VSGCCAVC",
-    "VSGCL", "VSGNoCapacitor", "ZIP", "ZeroCurrent",
-    "CIGREMV14System", "GFLLVRTSystem", "GFMSMIBAVI", "HybridSystem",
-    "HybridGFMGFLSystem", "IEEE13System",
-    "ParallelVSGSystem", "SGSMIBSystem", "VSGSMIBAVCSystem", "VSGSMIBSystem",
-    "VSGSMIBSystemNoCapacitor",
-]
+] + list(_DEVICES) + list(_SYSTEMS)

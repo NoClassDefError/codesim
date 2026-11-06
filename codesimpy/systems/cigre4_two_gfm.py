@@ -1,69 +1,57 @@
-"""Two identical adaptive-VI GFMs on the CIGRE GFM/GFL corridor, optionally R/X-matched."""
+"""CIGRE4 and CIGRE4RX with two direct CLC GFMs (Lemma 1/2, tier C).
+
+``CIGRE4__GFM_D_S_LC__GFM_D_S_LC``, ``CIGRE4__GFM_D_S_LC`` (second GFM removed),
+``CIGRE4RX__GFM_D_H_LC__GFM_D_H_LC`` and ``CIGRE4RX__GFM_D_H_LC`` (second GFM removed).
+"""
 
 import numpy as np
 
-from ..components import Capacitor, GFMAVI, Infbus, ZeroCurrent
+from ..components import Capacitor, GFM_D_H_LC, GFM_D_S_LC, Infbus, ZeroCurrent
 from ..core import System
-from .cigre_mv14_system import CIGREMV14System
-from .hybrid_gfm_gfl_system import HybridGFMGFLSystem
-from .hybrid_gfmavi_gfl_system import HybridGFMAVIGFLSystem
+from .cigre14 import _CIGRE14
+from .cigre4_gfm_a_c_lc import _CIGRE4GFMAdmittance
+from .cigre4_gfm_d_s_lc import CIGRE4__GFM_D_S_LC__GFL_C_F_LC
 
 
-class ParallelGFMAVISystem(System):
-    """:class:`HybridGFMAVIGFLSystem` with the bus-7 GFL replaced by a second ``GFMAVI``.
+class _CIGRE4TwoGFM(System):
+    """``CIGRE4__GFM_D_S_LC__GFL_C_F_LC`` with the bus-7 GFL replaced by a second, identical GFM.
 
-    Topology: infinite bus -- upstream equivalent -- bus 8 -- 7--8 line -- bus 7.
-    ``gfm1`` connects at bus 8 and embeds the 8--9 line, as in
-    :class:`HybridGFMAVIGFLSystem`. ``gfm2`` is an identical device (same base,
-    parameters, references and embedded line) connected at bus 7. Bus 7 and bus 8
-    keep their line-charging capacitors.
+    Topology: infinite bus -- upstream equivalent -- bus 8 -- 7--8 line -- bus 7. ``gfm1`` connects at
+    bus 8 and embeds the 8--9 line; ``gfm2`` is an identical device (same base, parameters, references and
+    embedded line) at bus 7. Bus 7 and bus 8 keep their line-charging capacitors. With ``SECOND = False``
+    ``gfm2`` is replaced by ``ZeroCurrent`` (bus 7 and the 7--8 line stay, unloaded; case 4).
 
-    ``matchRX`` makes every series impedance proportional to the grid impedance
-    ``Z_g`` (upstream equivalent seen from bus 8), the condition of Lemma 1/2
-    (slides 14-15). With ``matchRX=True`` the defaults change to:
-
-    * ``GFMRf = rx * GFMLf`` (rx = R/X of ``Z_g``), so the converter filter has the
-      grid R/X; ``kVI``/``thetaVI`` follow (circular-CLC choice);
-    * ``lineRX = rx``: the 7--8 and 8--9 lines get the grid R/X at constant |Z|;
-    * ``GFMaviLaw = 2`` (hard CLC): the virtual impedance is exactly zero below
-      ``Imax``. The smooth law 1 adds a static, current-dependent impedance even at
-      nominal current, which is not proportional to ``Z_g(s)``;
-    * ``GFMCf = 0.01`` (GFM base): moves the Lf--C resonance far above the EMT band;
-    * ``lineCScale = 0.01``: the line-charging shunts are not part of ``Z_g``/``Z_M``, so
-      they are reduced to make the network as close to homogeneous R/X as possible.
-
-    Each of these can be overridden. With ``matchRX=False`` all values are those of
-    :class:`HybridGFMAVIGFLSystem` (CIGRE line R/X, ``Rf = Lf``, law 1, ``Cf = 0.1``).
-
-    ``lineCScale`` multiplies all line-charging capacitances (the bus-7/bus-8 shunts and the
-    bus-9 share inside the GFMs); 1 keeps the CIGRE values.
-
-    ``gfm2Connected=False`` replaces ``gfm2`` by ``ZeroCurrent`` (bus 7 and the 7--8
-    line stay, unloaded), the disconnection test of case 4.
+    ``MATCHED`` (network ``CIGRE4RX``) makes every series impedance proportional to the grid impedance
+    ``Z_g`` (upstream equivalent seen from bus 8), the condition of Lemma 1/2 (slides 14-15). Its defaults:
+    ``GFMRf = rx * GFMLf`` (rx = R/X of ``Z_g``; kVI/thetaVI follow), ``lineRX = rx`` (7--8 and 8--9 lines
+    at the grid R/X, constant |Z|), ``gfmFilterC = 0.01`` (moves the Lf--C resonance above the EMT band) and
+    ``lineCScale = 0.01`` (line charging is not part of Z_g/Z_M). The matched GFM is the hard CLC
+    (GFM_D_H_LC): its virtual impedance is exactly zero below Imax, whereas the smooth law adds a static,
+    current-dependent impedance at any current. Unmatched (``CIGRE4``): CIGRE line R/X, ``Rf = Lf``,
+    smooth CLC (GFM_D_S_LC), ``gfmFilterC = 0.1``, ``lineCScale = 1``. All numeric defaults can be overridden.
     """
+    DEVICE = GFM_D_S_LC
+    MATCHED = False
+    SECOND = True
 
     @staticmethod
     def gridRX(p):
-        _, R, L, _, _ = HybridGFMGFLSystem.buildReducedNetwork(
-            p.get("upstreamScale", 1.0), p.get("upstreamRX"))
+        _, R, L, _, _ = _CIGRE4GFMAdmittance.buildReducedNetwork(
+            p.get("gridImpedanceScale", 1.0), p.get("gridRX"))
         return float(R[0] / L[0])
 
-    @staticmethod
-    def defaultParameters(overrides=None):
+    @classmethod
+    def defaultParameters(cls, overrides=None):
         overrides = dict(overrides or {})
-        overrides.setdefault("matchRX", True)
-        overrides.setdefault("gfm2Connected", True)
-        overrides.setdefault("gflModel", "GFLVSCNoOuterLoop")   # unused; keeps the parent defaults valid
-        if overrides["matchRX"]:
-            rx = ParallelGFMAVISystem.gridRX(overrides)
+        if cls.MATCHED:
+            rx = cls.gridRX(overrides)
             overrides.setdefault("GFMRf", rx * overrides.get("GFMLf", 0.1))
             overrides.setdefault("lineRX", rx)
-            overrides.setdefault("GFMaviLaw", 2)
-            overrides.setdefault("GFMCf", 0.01)
+            overrides.setdefault("gfmFilterC", 0.01)
             overrides.setdefault("lineCScale", 0.01)
         overrides.setdefault("lineRX", None)
         overrides.setdefault("lineCScale", 1.0)
-        return HybridGFMAVIGFLSystem.defaultParameters(overrides)
+        return CIGRE4__GFM_D_S_LC__GFL_C_F_LC.defaultParameters(overrides)
 
     @staticmethod
     def setRX(R, L, rx):
@@ -74,7 +62,7 @@ class ParallelGFMAVISystem(System):
 
     def __init__(self, p):
         incidence, branchR, branchL, busNames, busCapacitance = (
-            HybridGFMGFLSystem.buildReducedNetwork(p.get("upstreamScale", 1.0), p.get("upstreamRX"))
+            _CIGRE4GFMAdmittance.buildReducedNetwork(p["gridImpedanceScale"], p["gridRX"])
         )
         branchR, branchL = branchR.copy(), branchL.copy()
         busCapacitance = busCapacitance * p["lineCScale"]
@@ -99,19 +87,19 @@ class ParallelGFMAVISystem(System):
             capacitor.p["w"]["num"] = 1
 
         def buildGFM(name):
-            gfm = GFMAVI(1, p["VSGSbase_VA"], name)
+            gfm = self.DEVICE(1, p["VSGSbase_VA"], name)
             for parameter, value in (
-                ("C", busCapacitance[lineNode] / toGFM + p["GFMCf"]),
+                ("C", busCapacitance[lineNode] / toGFM + p["gfmFilterC"]),
                 ("Rg", lineR * toGFM), ("Lg", lineL * toGFM),
                 ("Rf", p["GFMRf"]), ("Lf", p["GFMLf"]), ("Kp", p["GFMKp"]), ("Imax", p["GFMImax"]),
-                ("aviLaw", p["GFMaviLaw"]), ("Ith", p["GFMIth"]), ("kVI", p["GFMkVI"]),
+                ("kVI", p["GFMkVI"]),
                 ("thetaVI", p["GFMthetaVI"]),
             ):
                 gfm.p[parameter]["num"] = value
             return gfm
 
         gfm1 = buildGFM("parallel_avi_gfm1_bus8")
-        gfm2 = buildGFM("parallel_avi_gfm2_bus7") if p["gfm2Connected"] else None
+        gfm2 = buildGFM("parallel_avi_gfm2_bus7") if self.SECOND else None
         references = {str(source.uref[0]): lambda t: self.sourceVoltage(t, p)}
         for gfm in (gfm1, gfm2):
             if gfm is not None:
@@ -129,7 +117,7 @@ class ParallelGFMAVISystem(System):
         }
         network = {"A": incidence, "R": branchR, "L": branchL, "busNames": busNames}
         super().__init__(
-            "ParallelGFMAVISystem", network, devices,
+            type(self).__name__, network, devices,
             {"Vbase": 1, "Sbase": p["Sbase_VA"], "frequency_Hz": p["frequency_Hz"]},
             references,
         )
@@ -145,13 +133,13 @@ class ParallelGFMAVISystem(System):
         self.eventStateIndex = self.stateNames.index(f"delta{gfm1.index}")
 
     def sourceVoltage(self, time_s, p):
-        return CIGREMV14System.sourceVoltage(self, time_s, p)
+        return _CIGRE14.sourceVoltage(self, time_s, p)
 
     def eventHandler(self, time_s, state):
-        return CIGREMV14System.eventHandler(self, time_s, state)
+        return _CIGRE14.eventHandler(self, time_s, state)
 
     def gfmSignals(self, gfm, state):
-        """Per-GFM signals on the GFM base (see :meth:`HybridGFMAVIGFLSystem.calculateSignals`)."""
+        """Per-GFM signals on the GFM base (see :meth:`CIGRE4__GFM_D_S_LC__GFL_C_F_LC.calculateSignals`)."""
         column = lambda name: state[:, self.stateNames.index(f"{name}{gfm.index}")]
         vc = np.column_stack((column("vCd"), column("vCq")))
         iref = np.column_stack((column("iRefd"), column("iRefq")))
@@ -179,3 +167,27 @@ class ParallelGFMAVISystem(System):
             signals[key] = np.column_stack([item[key] for item in perGFM])
         signals["gfmNames"] = [key for key in ("gfm1", "gfm2") if self.devices[key] is not None]
         return signals
+
+
+class CIGRE4__GFM_D_S_LC__GFM_D_S_LC(_CIGRE4TwoGFM):
+    """CIGRE4 · two GFM_D_S_LC (direct, smooth circular CLC, LC filter): gfm1 at bus 8 (through the 8--9 line),
+    gfm2 at bus 7. CIGRE line R/X, not impedance-matched (tier C, "2GFM-unmatched")."""
+    DEVICE, MATCHED, SECOND = GFM_D_S_LC, False, True
+
+
+class CIGRE4__GFM_D_S_LC(_CIGRE4TwoGFM):
+    """CIGRE4 · one GFM_D_S_LC at bus 8; bus 7 and the 7--8 line stay, unloaded (tier C, the unmatched case with
+    GFM2 removed)."""
+    DEVICE, MATCHED, SECOND = GFM_D_S_LC, False, False
+
+
+class CIGRE4RX__GFM_D_H_LC__GFM_D_H_LC(_CIGRE4TwoGFM):
+    """CIGRE4RX · two GFM_D_H_LC (direct, hard circular CLC, LC filter) on the R/X-matched corridor: every series
+    impedance (filter Rf + jLf, 7--8 and 8--9 lines) has the grid R/X, line charging reduced (tier C, "2GFM-matched")."""
+    DEVICE, MATCHED, SECOND = GFM_D_H_LC, True, True
+
+
+class CIGRE4RX__GFM_D_H_LC(_CIGRE4TwoGFM):
+    """CIGRE4RX · one GFM_D_H_LC at bus 8 on the R/X-matched corridor; bus 7 and the 7--8 line stay, unloaded
+    (tier C, the matched case with GFM2 removed)."""
+    DEVICE, MATCHED, SECOND = GFM_D_H_LC, True, False

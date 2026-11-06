@@ -1,12 +1,14 @@
-"""GFL low-voltage ride-through benchmark."""
+"""SMIB__GFL_C_F_L: GFL low-voltage ride-through benchmark."""
 
 import numpy as np
 
-from ..components import GFLVSCNoOuterLoop, Infbus
+from ..components import GFL_C_F_L, Infbus
 from ..core import System
 
 
-class GFLLVRTSystem(System):
+class SMIB__GFL_C_F_L(System):
+    """SMIB · GFL_C_F_L: GFL with current references (no outer loop), PLL and FRT/LVRT current priority, without
+    terminal capacitor (the grid impedance is embedded in the device). LVRT and post-fault voltage studies."""
     @staticmethod
     def defaultParameters(overrides=None):
         p = {
@@ -32,7 +34,7 @@ class GFLLVRTSystem(System):
         return p
 
     def __init__(self, p):
-        gfl = GFLVSCNoOuterLoop(1, 8100, "1")
+        gfl = GFL_C_F_L(1, 8100, "1")
         for name, value in (("Vctrl", 0), ("KpPll", 0.2), ("KiPll", 0.2), ("Vref", 1), ("Kq", 1)):
             gfl.p[name]["num"] = value
         for name in ("Rg", "Lg", "K1", "Id2"):
@@ -44,8 +46,7 @@ class GFLLVRTSystem(System):
             "A": np.empty((1, 0)), "R": [], "L": [],
             "busNames": ["PCC / Infinite bus"],
         }
-        super().__init__(
-            "GFLLVRTSystem", network, devices,
+        super().__init__(type(self).__name__, network, devices,
             {"Vbase": 1, "Sbase": 8100, "frequency_Hz": 50}, refs,
         )
         self.solverSettings = {

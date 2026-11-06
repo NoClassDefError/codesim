@@ -9,7 +9,7 @@ const signalsCommandId = `${extensionNamespace}.openSignals`;
 const selectBackendCommandId = `${extensionNamespace}.selectBackendDirectory`;
 const viewerViewId = `${extensionNamespace}.viewer`;
 const backendStatusColorId = 'codesim.backendRunningForeground';
-const defaultSystem = 'VSGSMIBSystem';
+const defaultSystem = 'SMIB__GFM_A_C_LC';
 const pythonExtensionId = 'ms-python.python';
 
 type AnalysisKind = 'simulation' | 'smallSignal' | 'interaction' | 'transientVoltage';
@@ -328,9 +328,9 @@ class CodeSimHost {
 		if (!selected) {
 			return;
 		}
-		if (analysis === 'interaction' && selected !== 'HybridSystem') {
+		if (analysis === 'interaction' && selected !== 'TwoBus__GFM_A_C_LC__GFL_P_F_L') {
 			void vscode.window.showWarningMessage(
-				'Interaction analysis currently supports HybridSystem only.',
+				'Interaction analysis currently supports TwoBus__GFM_A_C_LC__GFL_P_F_L only.',
 			);
 			return;
 		}

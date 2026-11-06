@@ -43,10 +43,10 @@ codesimpy/
 ## Class API
 
 ```python
-from codesimpy.systems import HybridSystem
+from codesimpy.systems import TwoBus__GFM_A_C_LC__GFL_P_F_L
 
-parameters = HybridSystem.defaultParameters({"SCR": 2.0, "enableGFL": True})
-system = HybridSystem(parameters)
+parameters = TwoBus__GFM_A_C_LC__GFL_P_F_L.defaultParameters({"SCR": 2.0})
+system = TwoBus__GFM_A_C_LC__GFL_P_F_L(parameters)
 
 operatingPoint = system.initialize(
     ResidualTolerance=parameters["residualTolerance"],

@@ -27,7 +27,7 @@ export function Toolbar({
   view = 'topology',
 }: Props) {
   const [systems, setSystems] = useState<string[]>([]);
-  const [selectedSystem, setSelectedSystem] = useState('VSGSMIBSystem');
+  const [selectedSystem, setSelectedSystem] = useState('SMIB__GFM_A_C_LC');
   const [backendRunning, setBackendRunning] = useState(false);
   const [running, setRunning] = useState(false);
   const [activeAction, setActiveAction] = useState<string>();
@@ -131,9 +131,9 @@ export function Toolbar({
             <button
               type="button"
               className="toolbar-analysis-button"
-              disabled={modelUnavailable || selectedSystem !== 'HybridSystem'}
+              disabled={modelUnavailable || selectedSystem !== 'TwoBus__GFM_A_C_LC__GFL_P_F_L'}
               onClick={() => runAnalysis('interaction', selectedSystem)}
-              title="Run modal interaction analysis for HybridSystem"
+              title="Run modal interaction analysis for TwoBus__GFM_A_C_LC__GFL_P_F_L"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="6" cy="7" r="2.5" />

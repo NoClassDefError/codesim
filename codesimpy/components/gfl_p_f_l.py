@@ -1,11 +1,13 @@
-"""Grid-following converter with smooth LVRT current priority."""
+"""GFL_P_F_L: Grid-following converter with smooth LVRT current priority."""
 
 import sympy as sp
 
 from ..core import Device
 
 
-class GFLVSC(Device):
+class GFL_P_F_L(Device):
+    """GFL · P: outer P/Q loops + current PI, PLL · F: FRT/LVRT reactive-current priority · L: filter inductor only (a terminal capacitor, if any, is a separate Capacitor)."""
+
     def __init__(self, Vb, Sb, index):
         super().__init__(Vb, Sb, "Current", index, {
             "L": 3.25e-4, "Kicc": 5.0, "Kpcc": 0.1,

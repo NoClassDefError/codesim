@@ -1,12 +1,13 @@
-"""Long-term GFM with an optional parallel GFL."""
+"""TwoBus__GFM_A_C_LC__GFL_P_F_L, TwoBus__GFM_A_C_LC: GFM (and GFL) at one PCC behind a grid impedance."""
 
 import numpy as np
 
-from ..components import GFLVSC, Infbus, VSGCC, ZeroCurrent
+from ..components import GFL_P_F_L, GFM_A_C_LC, Infbus, ZeroCurrent
 from ..core import System
 
 
-class HybridSystem(System):
+class _TwoBus(System):
+    WITH_GFL = True
     nonEditableParameterNames = frozenset({"branchL", "branchR"})
 
     @staticmethod
@@ -24,7 +25,6 @@ class HybridSystem(System):
             "recoveryStart_s": 0.5, "recoveryComplete_s": 0.501,
             "faultVoltage": 0.25, "SCR": 1.69, "rho": 1.0,
             "outputStep_s": 2e-3, "residualTolerance": 1e-4,
-            "enableGFL": True,
         }
         p.update(overrides or {})
         p["wBase"] = 2 * np.pi * p["frequency_Hz"]
@@ -42,7 +42,7 @@ class HybridSystem(System):
 
     def __init__(self, p):
         source = Infbus(p["Vbase"], p["Sbase"], "hybrid_grid")
-        vsg = VSGCC(p["Vbase"], p["vsgSbase"], "hybrid_vsg")
+        vsg = GFM_A_C_LC(p["Vbase"], p["vsgSbase"], "hybrid_vsg")
         vsg.p["Imax"]["num"] = p["vsgImax"]
         for sourceName, targetName in (("vsgRv", "Rv"), ("vsgLv", "Lv"), ("vsgLf", "Lf"),
                                        ("vsgKpApc", "Kp"), ("vsgKpCc", "Kp_cc"), ("vsgKiCc", "Ki_cc")):
@@ -50,8 +50,8 @@ class HybridSystem(System):
         zero = ZeroCurrent(p["Vbase"], p["Sbase"], "hybrid_grid_zero")
         refs = {str(source.uref[0]): p["gridVoltage"], str(vsg.uref[0]): p["vsgPref"],
                 str(vsg.uref[1]): p["vsgVref"], str(vsg.uref[2]): p["wref"]}
-        if p["enableGFL"]:
-            gfl = GFLVSC(p["Vbase"], p["gflSbase"], "hybrid_gfl")
+        if self.WITH_GFL:
+            gfl = GFL_P_F_L(p["Vbase"], p["gflSbase"], "hybrid_gfl")
             for sourceName, targetName in (("gflLf", "L"), ("gflKpCc", "Kpcc"), ("gflKiCc", "Kicc"),
                                            ("gflKpPll", "KpPll"), ("gflKiPll", "KiPll"),
                                            ("gflKpP", "kpP"), ("gflKiP", "kiP"),
@@ -60,18 +60,16 @@ class HybridSystem(System):
             gfl.p["Vref"]["num"] = p["gflVref"]
             refs[str(gfl.uref[0])] = p["gflPref"]
             refs[str(gfl.uref[1])] = p["gflQref"]
-            name = "HybridSystem_gfm_gfl_current_limited" if p["vsgSbase"] == p["Sbase"] and p["gflSbase"] == p["Sbase"] else "HybridSystem_gfm_gfl_current_limited_multibase"
         else:
             gfl = ZeroCurrent(p["Vbase"], p["Sbase"], "hybrid_pcc_zero")
-            name = "HybridSystem_gfm_only"
         devices = {"Vdev": [source, vsg], "Idev": [zero, gfl], "source": source, "vsg": vsg, "gfl": gfl}
         network = {"A": np.array([[1.0], [-1.0]]), "R": [p["Rg"]], "L": [p["Lg"]],
                    "busNames": ["Infinite bus", "PCC"]}
-        super().__init__(name, network, devices,
+        super().__init__(type(self).__name__, network, devices,
                          {"Vbase": p["Vbase"], "Sbase": p["Sbase"], "frequency_Hz": p["frequency_Hz"]}, refs)
         self.solverSettings["max_step"] = 5e-3 / (2 * np.pi * p["frequency_Hz"])
         self.parameters, self.parameterNames = p, list(p)
-        self.enableGFL = p["enableGFL"]
+        self.enableGFL = self.WITH_GFL
 
     def calculateSignals(self, time_s, state, networkSignals):
         state = np.asarray(state)
@@ -100,3 +98,15 @@ class HybridSystem(System):
         signals["gflLvrtMode"] = ((1 + np.tanh(50 * (self.devices["gfl"].p["Vth"]["num"] - pccVoltage))) / 2
                                   if self.enableGFL else np.zeros_like(pccVoltage))
         return signals
+
+
+class TwoBus__GFM_A_C_LC__GFL_P_F_L(_TwoBus):
+    """TwoBus · GFM_A_C_LC (virtual admittance + current PI, circular current-reference limit, LC filter) and
+    GFL_P_F_L (outer P/Q loops, FRT current priority, no filter capacitor) at one PCC behind the grid impedance
+    set by SCR and rho. Long-term studies and the interaction analysis."""
+    WITH_GFL = True
+
+
+class TwoBus__GFM_A_C_LC(_TwoBus):
+    """TwoBus · GFM_A_C_LC alone at the PCC behind the grid impedance (the TwoBus system without the GFL)."""
+    WITH_GFL = False

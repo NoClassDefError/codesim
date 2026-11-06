@@ -1,14 +1,16 @@
-"""Balanced IEEE 13-node feeder, optionally including converters."""
+"""IEEE13, IEEE13__GFM_D_N_LC__GFL_P_F_L: balanced IEEE 13-node feeder without / with converters."""
 
 import numpy as np
 
-from ..components import Capacitor, GFLVSC, Infbus, PQLoad, VSGCL, ZIP, ZeroCurrent
+from ..components import Capacitor, GFL_P_F_L, GFM_D_N_LC, Infbus, PQLoad, ZIP, ZeroCurrent
 from ..core import System
 
 
-class IEEE13System(System):
-    @staticmethod
-    def defaultParameters(overrides=None):
+class _IEEE13(System):
+    WITH_CONVERTERS = False
+
+    @classmethod
+    def defaultParameters(cls, overrides=None):
         overrides = dict(overrides or {})
         p = {
             "Sbase_VA": 5e6, "Vbase_LL_V": 4.16e3, "frequency_Hz": 50,
@@ -22,9 +24,8 @@ class IEEE13System(System):
             "bus671ActiveZFraction": 0.65, "bus671LineRScale": 0.5,
             "bus645Gd": 0.1, "switchResistance_pu": 5e-5,
             "outputStep_s": None, "residualTolerance": 1e-4,
-            "enableConverters": False,
         }
-        if overrides.get("enableConverters"):
+        if cls.WITH_CONVERTERS:
             p.update({"validationTime_s": 0.3, "faultVoltage": 0.5})
         p.update(overrides)
         p["wBase"] = 2 * np.pi * p["frequency_Hz"]
@@ -53,7 +54,7 @@ class IEEE13System(System):
         }
 
     def __init__(self, p):
-        enableConverters = p["enableConverters"]
+        enableConverters = self.WITH_CONVERTERS
         busTable, branchTable, loadTable, data = self.networkData()
         incidence, branchLpu, branchRpu = self.branches(busTable, branchTable, data, p)
         voltageDevices, currentDevices, referenceMap = [None] * len(busTable), [None] * len(busTable), {}
@@ -66,13 +67,13 @@ class IEEE13System(System):
                 referenceMap[str(source.uref[0])] = p["infbusVoltage"]
                 hasSource = 0
             elif enableConverters and busName == "680":
-                source = VSGCL(1, p["Sbase_Dev"], deviceIndex)
+                source = GFM_D_N_LC(1, p["Sbase_Dev"], deviceIndex)
                 voltageDevices[busIndex] = source
                 for symbol, value in zip(source.uref, (p["GFMPref"], p["GFMVref"], p["GFMwref"])):
                     referenceMap[str(symbol)] = value
                 hasSource = 0
             elif enableConverters and busName in ("645", "671"):
-                source = GFLVSC(1, p["Sbase_Dev"], f"{deviceIndex}_gfl")
+                source = GFL_P_F_L(1, p["Sbase_Dev"], f"{deviceIndex}_gfl")
                 source.p["KpPll"]["num"], source.p["KiPll"]["num"] = p["gflKpPll"], p["gflKiPll"]
                 if busName == "671":
                     source.p["Vth"]["num"], source.p["K1"]["num"] = p["gfl671Vth"], p["gfl671K1"]
@@ -127,8 +128,7 @@ class IEEE13System(System):
                     currentDevices[busIndex] = ZeroCurrent(1, p["Sbase_VA"], f"{deviceIndex}_zero")
         devices = {"Vdev": voltageDevices, "Idev": currentDevices}
         network = {"A": incidence, "R": branchRpu, "L": branchLpu, "busNames": busTable}
-        name = "IEEE13System_converters" if enableConverters else "IEEE13System_passive"
-        super().__init__(name, network, devices,
+        super().__init__(type(self).__name__, network, devices,
                          {"Vbase": 1, "Sbase": p["Sbase_VA"], "frequency_Hz": p["wBase"] / (2 * np.pi)}, referenceMap)
         self.solverSettings["max_step"] = 1e-3 / p["wBase"]
         self.parameters, self.parameterNames = p, list(p)
@@ -220,3 +220,14 @@ class IEEE13System(System):
                 "busVoltageAngle": angle, "deviceNames": ["VSG 680", "GFL 645", "GFL 671"],
                 "activePower": activePower, "reactivePower": reactivePower,
                 "currentD": currentD, "currentQ": currentQ, "converterMode": converterMode}
+
+
+class IEEE13(_IEEE13):
+    """IEEE13: balanced IEEE 13-node feeder without converters."""
+    WITH_CONVERTERS = False
+
+
+class IEEE13__GFM_D_N_LC__GFL_P_F_L(_IEEE13):
+    """IEEE13 · GFM_D_N_LC at bus 680 (direct, no current limiter, LC filter) + GFL_P_F_L at buses 645 and 671
+    (outer P/Q loops, FRT current priority)."""
+    WITH_CONVERTERS = True

@@ -1,4 +1,4 @@
-"""Virtual-admittance GFM with PI current control and an LC filter."""
+"""GFM_A_C_LC: Virtual-admittance GFM with PI current control and an LC filter."""
 
 import numpy as np
 import sympy as sp
@@ -6,7 +6,9 @@ import sympy as sp
 from ..core import Device
 
 
-class VSGCC(Device):
+class GFM_A_C_LC(Device):
+    """GFM · A: virtual admittance + current PI · C: circular limit on the current reference · LC: terminal capacitor in the device (voltage port)."""
+
     def __init__(self, Vb: float, Sb: float, index: str) -> None:
         super().__init__(
             Vb, Sb, "Voltage", index,

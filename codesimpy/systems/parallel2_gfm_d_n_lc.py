@@ -1,12 +1,14 @@
-"""Two grid-forming converters connected to an infinite bus."""
+"""Parallel2__GFM_D_N_LC: Two grid-forming converters connected to an infinite bus."""
 
 import numpy as np
 
-from ..components import Infbus, VSGCL, ZeroCurrent
+from ..components import GFM_D_N_LC, Infbus, ZeroCurrent
 from ..core import System
 
 
-class ParallelVSGSystem(System):
+class Parallel2__GFM_D_N_LC(System):
+    """Parallel2 · two GFM_D_N_LC (internal voltage directly behind the LC filter, no inner loops, no current
+    limiter) on an infinite bus."""
     @staticmethod
     def defaultParameters(overrides=None):
         p = {
@@ -30,8 +32,8 @@ class ParallelVSGSystem(System):
         return p
 
     def __init__(self, p):
-        vsg1 = VSGCL(p["Vbase"], p["Sbase"], "parallel_vsg1")
-        vsg2 = VSGCL(p["Vbase"], p["Sbase"], "parallel_vsg2")
+        vsg1 = GFM_D_N_LC(p["Vbase"], p["Sbase"], "parallel_vsg1")
+        vsg2 = GFM_D_N_LC(p["Vbase"], p["Sbase"], "parallel_vsg2")
         source = Infbus(p["Vbase"], p["Sbase"], "parallel_grid")
         devices = {
             "Vdev": [vsg1, vsg2, source],
@@ -48,7 +50,7 @@ class ParallelVSGSystem(System):
         network = {"A": np.array([[1, 0], [0, 1], [-1, -1]], dtype=float),
                    "R": p["branchR"], "L": p["branchL"],
                    "busNames": ["VSG 1", "VSG 2", "Infinite bus"]}
-        super().__init__("ParallelVSGSystem", network, devices,
+        super().__init__(type(self).__name__, network, devices,
                          {"Vbase": p["Vbase"], "Sbase": p["Sbase"], "frequency_Hz": p["frequency_Hz"]}, refs)
         self.solverSettings["max_step"] = 5e-3 / (2 * np.pi * p["frequency_Hz"])
         self.parameters, self.parameterNames = p, list(p)

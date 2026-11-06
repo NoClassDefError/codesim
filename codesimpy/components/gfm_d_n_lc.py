@@ -1,4 +1,4 @@
-"""Grid-forming converter with an LC filter and current-limit parameters."""
+"""GFM_D_N_LC: Grid-forming converter with an LC filter and current-limit parameters."""
 
 import numpy as np
 import sympy as sp
@@ -6,7 +6,9 @@ import sympy as sp
 from ..core import Device
 
 
-class VSGCL(Device):
+class GFM_D_N_LC(Device):
+    """GFM · D: internal voltage directly behind Rf + jLf, no inner loops · N: no current limiter (the Imax/Ith/kVI/thetaVI parameters are not used by the equations) · LC: terminal capacitor in the device (voltage port)."""
+
     def __init__(self, Vb: float, Sb: float, index: str) -> None:
         super().__init__(
             Vb, Sb, "Voltage", index,

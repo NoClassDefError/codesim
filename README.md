@@ -79,17 +79,32 @@ The topology toolbar also provides refresh, automatic layout, and layout-save ac
 
 ## Included systems
 
+Systems are named like a serial number, `Network__Unit__Unit`. A unit is a converter with its filter, named
+`Role_Control_Limiter_Filter`:
+
+| Segment | Codes |
+| --- | --- |
+| Role | `GFM` grid-forming, `GFL` grid-following |
+| Control | `A` virtual admittance + current PI; `V` voltage PI + current PI; `D` direct (internal voltage behind the filter, no inner loops); `P` GFL with outer P/Q loops; `C` GFL with current references |
+| Limiter | `C` circular limit on the current reference; `L` linear adaptive virtual impedance; `S` smooth circular CLC; `H` hard circular CLC; `N` none; `F` GFL FRT/LVRT current priority |
+| Filter | `LC` with filter (terminal) capacitor; `L` without |
+| Network | `SMIB` one unit + infinite bus; `Parallel2` two GFMs + infinite bus; `TwoBus` GFM and GFL at one PCC; `CIGRE4` four-node CIGRE reduction (buses 7, 8, 9); `CIGRE14` full CIGRE MV feeder; `IEEE13` IEEE 13-node feeder |
+
 | System | Description |
 | --- | --- |
-| `HybridSystem` | Current-limited GFM with an optional parallel GFL connected to an infinite bus |
-| `HybridGFMGFLSystem` | Four-node CIGRE reduction retaining buses 7, 8, 9, with a GFL, GFM, and infinite bus |
-| `VSGSMIBSystem` | VSG single-machine infinite-bus fault study using `VSGCC` or `VSGCL` |
-| `VSGSMIBAVCSystem` | VSG single-machine infinite-bus fault study using cascaded voltage/current control (`VSGCCAVC`) |
-| `GFLLVRTSystem` | Grid-following converter low-voltage ride-through study |
-| `ParallelVSGSystem` | Two VSGs connected in parallel through separate branches |
-| `SGSMIBSystem` | Synchronous-generator single-machine infinite-bus study |
-| `IEEE13System` | IEEE 13-bus distribution system with optional converters |
-| `CIGREMV14System` | CIGRE MV 14-bus system with VSG integration and fault studies |
+| `SMIB__GFM_A_C_LC`, `SMIB__GFM_V_C_LC`, `SMIB__GFM_D_N_LC` | One voltage-port GFM with its LC filter on an infinite bus |
+| `SMIB__GFM_A_C_L` | GFM without terminal capacitor (grid impedance embedded in the device) |
+| `SMIB__GFM_D_L_LC`, `SMIB__GFM_D_S_LC`, `SMIB__GFM_D_H_LC` | Direct GFM with linear adaptive VI, smooth or hard circular CLC |
+| `SMIB__GFL_C_F_L`, `SMIB__GFL_P_F_LC` | GFL low-voltage ride-through studies, without / with terminal capacitor |
+| `SMIB__SG` | Synchronous generator on an infinite bus |
+| `Parallel2__GFM_D_N_LC` | Two GFMs connected in parallel through separate branches |
+| `TwoBus__GFM_A_C_LC__GFL_P_F_L`, `TwoBus__GFM_A_C_LC` | GFM with / without a parallel GFL at one PCC; interaction analysis |
+| `CIGRE4__GFM_A_C_LC__GFL_C_F_L`, `CIGRE4__GFM_A_C_LC__GFL_P_F_L` | Four-node CIGRE reduction with the virtual-admittance GFM and the GFL without / with outer loop |
+| `CIGRE4__GFM_D_S_LC__GFL_C_F_LC` | Four-node CIGRE reduction with the smooth-CLC GFM and both converter filter capacitors |
+| `CIGRE14__GFM_A_C_LC__GFL_P_F_L`, `CIGRE14__GFM_A_C_LC__GFL_C_F_L` | Full CIGRE MV 14-bus feeder with GFM and GFL |
+| `IEEE13`, `IEEE13__GFM_D_N_LC__GFL_P_F_L` | IEEE 13-bus feeder without / with converters |
+
+Each class is one fixed configuration; its docstring gives the full description.
 
 The backend service builds the frontend list from the exported system classes; it is not hard-coded in the extension.
 
@@ -150,7 +165,7 @@ Export the class from `codesimpy/components/__init__.py` and instantiate it in a
 
 - Three-phase unbalanced systems have not yet been validated.
 - Detailed switching models and switching events are not supported.
-- Interaction analysis is currently specific to `HybridSystem` with GFL enabled.
+- Interaction analysis is currently specific to `TwoBus__GFM_A_C_LC__GFL_P_F_L`.
 - The project is a research-oriented model library rather than a replacement for switching-level EMT tools.
 
 ## License and policies

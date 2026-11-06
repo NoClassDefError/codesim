@@ -7,20 +7,11 @@ from typing import Any
 import numpy as np
 
 from ..core import SmallSignalAnalyzer
-from ..systems import (CIGREMV14System, GFLLVRTSystem, HybridGFMGFLSystem,
-                       HybridSystem, IEEE13System, ParallelVSGSystem, GFLLVRTSystemCapacitor,
-                       SGSMIBSystem, VSGSMIBAVCSystem, VSGSMIBSystem,
-                       VSGSMIBSystemNoCapacitor)
+from .. import systems as _systems
 from .output_json_factory import OutputJsonFactory
 
 
-SYSTEM_CLASSES = {
-    systemClass.__name__: systemClass for systemClass in (
-        HybridSystem, HybridGFMGFLSystem, VSGSMIBSystem, VSGSMIBAVCSystem,
-        GFLLVRTSystem, ParallelVSGSystem, SGSMIBSystem, IEEE13System,
-        CIGREMV14System, GFLLVRTSystemCapacitor, VSGSMIBSystemNoCapacitor
-    )
-}
+SYSTEM_CLASSES = {name: getattr(_systems, name) for name in _systems.__all__}   # every public system
 
 
 class CLI:
@@ -232,8 +223,8 @@ class CLI:
         })
 
     def runInteractionAnalysis(self):
-        if self.systemName != "HybridSystem" or not self.system.devices.get("gfl"):
-            raise ValueError("interaction analysis requires HybridSystem with GFL enabled")
+        if self.systemName != "TwoBus__GFM_A_C_LC__GFL_P_F_L":
+            raise ValueError("interaction analysis requires TwoBus__GFM_A_C_LC__GFL_P_F_L")
         vsgIndices = [
             self.system.stateNames.index(str(symbol)) + 1
             for symbol in self.system.devices["vsg"].x

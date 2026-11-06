@@ -1,12 +1,14 @@
-"""GFL low-voltage ride-through benchmark."""
+"""SMIB__GFL_P_F_LC: GFL low-voltage ride-through benchmark."""
 
 import numpy as np
 
-from ..components import Capacitor, GFLVSC, Infbus, ZeroCurrent
+from ..components import Capacitor, GFL_P_F_L, Infbus, ZeroCurrent
 from ..core import System
 
 
-class GFLLVRTSystemCapacitor(System):
+class SMIB__GFL_P_F_LC(System):
+    """SMIB · GFL_P_F_LC: GFL with outer P/Q loops, PLL and FRT/LVRT current priority, with its terminal
+    capacitor ``C`` (GFL base) at the PCC. Recurrent-FRT studies."""
     @staticmethod
     def defaultParameters(overrides=None):
         p = {
@@ -33,7 +35,7 @@ class GFLLVRTSystemCapacitor(System):
         return p
 
     def __init__(self, p):
-        gfl = GFLVSC(1, 8100, "1")
+        gfl = GFL_P_F_L(1, 8100, "1")
         for name, value in (("Vctrl", 0), ("KpPll", 0.2), ("KiPll", 0.2), ("Vref", 1), ("Kq", 1)):
             gfl.p[name]["num"] = value
         for name in ("K1", "Id2"):
@@ -45,8 +47,7 @@ class GFLLVRTSystemCapacitor(System):
         devices = {"Vdev": [capacitor, source], "Idev": [gfl, zero], "gfl": gfl, "capacitor": capacitor, "source": source}
         network = {"A": np.array([[1.0], [-1.0]]), "R": [p["Rg"]], "L": [p["Lg"]],
                    "busNames": ["PCC", "Infinite bus"]}
-        super().__init__(
-            "GFLLVRTSystemCapacitor", network, devices,
+        super().__init__(type(self).__name__, network, devices,
             {"Vbase": 1, "Sbase": 8100, "frequency_Hz": 50}, refs,
         )
         self.solverSettings = {
@@ -64,7 +65,7 @@ class GFLLVRTSystemCapacitor(System):
         gridIdx = [self.stateNames.index(str(symbol)) for symbol in self.devices["source"].x]
         voltage, branch = net["busVoltage"], net["branchCurrent"]
         id, iq = state[:, gflIdx[0]], state[:, gflIdx[1]]
-        # GFLVSC has 8 states (with outer-loop PI), so look theta/xPLL up by name, not position.
+        # GFL_P_F_L has 8 states (with outer-loop PI), so look theta/xPLL up by name, not position.
         gflNames = [str(symbol) for symbol in gfl.x]
         thetaPLL = state[:, gflIdx[gflNames.index(f"theta{gfl.index}")]]
         xPLL = state[:, gflIdx[gflNames.index(f"xPLL{gfl.index}")]]

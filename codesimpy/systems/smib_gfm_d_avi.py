@@ -1,15 +1,16 @@
-"""Adaptive-VI GFM connected directly to an infinite bus."""
+"""SMIB__GFM_D_L_LC, SMIB__GFM_D_S_LC, SMIB__GFM_D_H_LC: direct adaptive-VI GFM on an infinite bus."""
 
 from typing import Any
 
 import numpy as np
 
-from ..components import GFMAVI, Infbus
+from ..components import GFM_D_H_LC, GFM_D_L_LC, GFM_D_S_LC, Infbus
 from ..core import System
 
 
-class GFMSMIBAVI(System):
-    """One-node SMIB with the capacitor and Rg/Lg embedded in GFMAVI."""
+class _SMIBGFMDirectAVI(System):
+    """One-node SMIB with the capacitor and Rg/Lg embedded in the GFM (``DEVICE``)."""
+    DEVICE = GFM_D_L_LC
 
     @staticmethod
     def defaultParameters(overrides=None):
@@ -19,6 +20,7 @@ class GFMSMIBAVI(System):
             "Pref": 0.0, "Vref": 1.0, "wref": 1.0,
             "C": 0.1, "Rf": 0.1, "Lf": 0.1,
             "Ith": 0.9, "kVI": 2.0, "thetaVI": 0.0, "Kp": 0.2,
+            "Imax": 1.5,
             "clearMode": "angle", "clearAngle_rad": -np.pi / 3,
             "faultStart_s": 0.2, "faultComplete_s": 0.20001,
             "minimumFaultDuration_s": 0.5,
@@ -40,10 +42,10 @@ class GFMSMIBAVI(System):
         return p
 
     def __init__(self, p: dict[str, Any]) -> None:
-        gfm = GFMAVI(p["Vbase"], p["Sbase"], "gfm")
+        gfm = self.DEVICE(p["Vbase"], p["Sbase"], "gfm")
         for name in (
             "C", "Rf", "Lf", "Rg", "Lg", "Ith", "kVI",
-            "thetaVI", "Kp",
+            "thetaVI", "Kp", "Imax",
         ):
             gfm.p[name]["num"] = p[name]
         source = Infbus(p["Vbase"], p["Sbase"], "grid")
@@ -65,7 +67,7 @@ class GFMSMIBAVI(System):
             "Vbase": p["Vbase"], "Sbase": p["Sbase"],
             "frequency_Hz": p["frequency_Hz"],
         }
-        super().__init__("GFMSMIBAVI", network, devices, base, refs)
+        super().__init__(type(self).__name__, network, devices, base, refs)
         self.solverSettings = {
             "method": "RK45", "max_step": 1e-4,
             "rtol": 1e-5, "atol": 1e-7,
@@ -118,7 +120,21 @@ class GFMSMIBAVI(System):
         ig = states("iGd", "iGq")
         delta = states("delta")[:, 0]
         magnitude = np.hypot(iref[:, 0], iref[:, 1])
-        excess = np.maximum(0.0, magnitude - gfm.p["Ith"]["num"])
+        limiter_magnitude = magnitude
+        if int(gfm.p["aviLaw"]["num"]) in (1, 2):
+            internal_voltage = self.parameters["Vref"] * np.column_stack((
+                np.cos(delta), np.sin(delta),
+            ))
+            error = internal_voltage - vc
+            impedance = np.array([
+                [gfm.p["Rf"]["num"], -gfm.p["Lf"]["num"]],
+                [gfm.p["Lf"]["num"], gfm.p["Rf"]["num"]],
+            ])
+            unlimited = np.linalg.solve(impedance, error.T).T
+            limiter_magnitude = np.hypot(unlimited[:, 0], unlimited[:, 1])
+        excess = gfm.viGain(
+            np.maximum(limiter_magnitude, 1e-12), symbolic=False,
+        )
         virtual_magnitude = gfm.p["kVI"]["num"] * excess
         signals.update({
             "pccVoltage": np.hypot(vc[:, 0], vc[:, 1]),
@@ -126,6 +142,7 @@ class GFMSMIBAVI(System):
             "vd": vc[:, 0], "vq": vc[:, 1],
             "irefDQ": iref, "gridCurrentDQ": ig,
             "filterCurrentMagnitude": magnitude,
+            "limiterCurrentMagnitude": limiter_magnitude,
             "gridCurrentMagnitude": np.hypot(ig[:, 0], ig[:, 1]),
             "adaptiveExcess": excess,
             "virtualResistance": virtual_magnitude * np.cos(gfm.p["thetaVI"]["num"]),
@@ -138,3 +155,32 @@ class GFMSMIBAVI(System):
         if time_s.size > 1:
             signals["dot_delta"] = np.gradient(np.unwrap(delta), time_s)
         return signals
+
+
+class SMIB__GFM_D_L_LC(_SMIBGFMDirectAVI):
+    """SMIB · GFM_D_L_LC: internal voltage directly behind Rf + jLf, linear adaptive virtual impedance
+    Z_VI = kVI max(0, |i_ref| - Ith) e^(j thetaVI); terminal capacitor and grid branch in the device."""
+    DEVICE = GFM_D_L_LC
+
+
+class _SMIBCircularCLC(_SMIBGFMDirectAVI):
+    """Circular CLC: kVI and thetaVI default to |Rf + jLf| / Imax and atan2(Lf, Rf), so Z_VI = Phi (Rf + jLf)/Imax."""
+
+    @staticmethod
+    def defaultParameters(overrides=None):
+        overrides = dict(overrides or {})
+        rf, lf, imax = overrides.get("Rf", 0.1), overrides.get("Lf", 0.1), overrides.get("Imax", 1.5)
+        overrides.setdefault("kVI", float(np.hypot(rf, lf) / imax))
+        overrides.setdefault("thetaVI", float(np.arctan2(lf, rf)))
+        return _SMIBGFMDirectAVI.defaultParameters(overrides)
+
+
+class SMIB__GFM_D_S_LC(_SMIBCircularCLC):
+    """SMIB · GFM_D_S_LC: as SMIB__GFM_D_L_LC with the smooth circular CLC, Phi(r) = r / tanh(r / Imax) - Imax
+    on the unlimited current (Presentation 2026-07-07, slide 1)."""
+    DEVICE = GFM_D_S_LC
+
+
+class SMIB__GFM_D_H_LC(_SMIBCircularCLC):
+    """SMIB · GFM_D_H_LC: as SMIB__GFM_D_L_LC with the hard circular CLC, max(0, r - Imax) (slide 2)."""
+    DEVICE = GFM_D_H_LC

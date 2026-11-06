@@ -1,46 +1,42 @@
-"""CIGRE GFM/GFL reduction with the adaptive-VI (circular CLC) GFM."""
+"""CIGRE4__GFM_D_S_LC__GFL_C_F_LC: four-node CIGRE reduction with the smooth-CLC GFM and both filter capacitors."""
 
 import numpy as np
 
-from ..components import Capacitor, GFMAVI, Infbus, ZeroCurrent
+from ..components import Capacitor, GFL_C_F_L, GFM_D_S_LC, Infbus, ZeroCurrent
 from ..core import System
-from .cigre_mv14_system import CIGREMV14System, buildGFL
-from .hybrid_gfm_gfl_system import HybridGFMGFLSystem
+from .cigre14 import _CIGRE14, buildGFL
+from .cigre4_gfm_a_c_lc import _CIGRE4GFMAdmittance
 
 
-class HybridGFMAVIGFLSystem(System):
-    """Same corridor as :class:`HybridGFMGFLSystem`, with ``GFMAVI`` instead of ``VSGCC``.
+class CIGRE4__GFM_D_S_LC__GFL_C_F_LC(System):
+    """CIGRE4 · GFM_D_S_LC + GFL_C_F_LC.
 
-    ``GFMAVI`` is a current device that embeds its PCC capacitor and its grid-side
-    branch. It is therefore connected at bus 8: its capacitor is the bus-9 line
-    capacitance and its ``Rg``/``Lg`` are the original 8--9 branch, both converted to
-    the GFM base. Buses 7 and 8, the upstream equivalent (``upstreamScale``,
-    ``upstreamRX``), the GFL, the fault and the clearing logic are unchanged.
+    GFM_D_S_LC (internal voltage directly behind Rf + jLf, smooth circular CLC
+    Phi(r) = r / tanh(r / Imax) - Imax on the unlimited current, Z_VI = Phi (Rf + jLf)/Imax by default) is
+    connected at bus 8 through the 8--9 line, which it embeds, with its filter capacitor ``gfmFilterC``
+    (default 0.1 pu, GFM base) plus the bus-9 line capacitance. GFL_C_F_L (current references, FRT current
+    priority) is at bus 7 with its filter capacitor ``gflFilterC`` (default 0.068 pu, GFL base) plus the
+    bus-7 line capacitance. Both filter capacitors must be > 0.
 
-    Converter filter capacitors: ``GFMCf`` (GFM base, default 0.1 as in Presentation
-    2026-07-07) is added to the bus-9 line capacitance inside ``GFMAVI``; ``GFLCf`` (GFL
-    base, default 0.068 as in ``GFLLVRTSystemCapacitor``) is added to the bus-7 line
-    capacitance. Both sit at the converter terminal; 0 recovers the line-only model.
-
-    GFM parameters (GFM base): ``GFMRf``, ``GFMLf``, ``GFMKp``, ``GFMImax``,
-    ``GFMaviLaw`` (0 linear AVI, 1 smooth circular CLC, 2 hard circular CLC),
-    ``GFMIth`` (law 0 only), and ``GFMkVI``/``GFMthetaVI``. When the last two are
-    ``None`` they follow the circular-CLC choice ``kVI = |Rf + jLf| / Imax``,
-    ``thetaVI = atan2(Lf, Rf)`` (Presentation 2026-07-07). References are
-    ``VSGPref``, ``VSGVref`` (internal EMF magnitude) and ``VSGwref``.
+    Options: ``gridImpedanceScale``, ``gridRX`` (upstream equivalent, as in CIGRE4__GFM_A_C_LC__GFL_C_F_L);
+    GFM ``GFMRf``, ``GFMLf``, ``GFMKp``, ``GFMImax``, ``GFMkVI``/``GFMthetaVI`` (``None``: kVI = |Rf + jLf| / Imax,
+    thetaVI = atan2(Lf, Rf)); references ``VSGPref``, ``VSGVref`` (internal EMF magnitude), ``VSGwref``.
     """
 
     @staticmethod
     def defaultParameters(overrides=None):
         overrides = dict(overrides or {})
         for name, value in (
-            ("upstreamScale", 1.0), ("upstreamRX", None),
+            ("gridImpedanceScale", 1.0), ("gridRX", None),
             ("GFMRf", 0.1), ("GFMLf", 0.1), ("GFMKp", 0.05), ("GFMImax", 1.5),
-            ("GFMaviLaw", 1), ("GFMIth", 0.9), ("GFMkVI", None), ("GFMthetaVI", None),
-            ("GFMCf", 0.1), ("GFLCf", 0.068),
+            ("GFMkVI", None), ("GFMthetaVI", None),
+            ("gfmFilterC", 0.1), ("gflFilterC", 0.068),
         ):
             overrides.setdefault(name, value)
-        p = CIGREMV14System.defaultParameters(overrides)
+        p = _CIGRE14.defaultParameters(overrides)
+        for name in ("gfmFilterC", "gflFilterC"):
+            if not p[name] > 0:
+                raise ValueError(f"CIGRE4__GFM_D_S_LC__GFL_C_F_LC needs {name} > 0 (both units include their filter capacitor)")
         if p["GFMkVI"] is None:
             p["GFMkVI"] = float(np.hypot(p["GFMRf"], p["GFMLf"]) / p["GFMImax"])
         if p["GFMthetaVI"] is None:
@@ -49,9 +45,9 @@ class HybridGFMAVIGFLSystem(System):
 
     def __init__(self, p):
         incidence, branchR, branchL, busNames, busCapacitance = (
-            HybridGFMGFLSystem.buildReducedNetwork(p.get("upstreamScale", 1.0), p.get("upstreamRX"))
+            _CIGRE4GFMAdmittance.buildReducedNetwork(p["gridImpedanceScale"], p["gridRX"])
         )
-        # Drop bus 9 and the 8--9 branch (index 2); GFMAVI embeds both.
+        # Drop bus 9 and the 8--9 branch (index 2); GFM_D_S_LC embeds both.
         sourceNode, gflNode, middleNode, gfmNode = range(4)
         toGFM = p["VSGSbase_VA"] / p["Sbase_VA"]          # impedance: system pu -> GFM pu
         lineR, lineL = branchR[2], branchL[2]
@@ -62,19 +58,19 @@ class HybridGFMAVIGFLSystem(System):
         source.p["kA"]["num"] = 100
         bus7 = Capacitor(1, p["Sbase_VA"], "hybrid_avi_bus7_lineC")
         bus8 = Capacitor(1, p["Sbase_VA"], "hybrid_avi_bus8_lineC")
-        gflFilterC = p["GFLCf"] * p["GFLSbase_VA"] / p["Sbase_VA"]   # GFL pu -> system pu
+        gflFilterC = p["gflFilterC"] * p["GFLSbase_VA"] / p["Sbase_VA"]   # GFL pu -> system pu
         for capacitor, node, extra in ((bus7, gflNode, gflFilterC), (bus8, middleNode, 0.0)):
             capacitor.p["C"]["num"] = busCapacitance[node] + extra
             capacitor.p["Gd"]["num"] = 0
             capacitor.p["w"]["num"] = 1
 
-        gfl, gflReferences = buildGFL(p, "hybrid_avi_gfl_bus7")
+        gfl, gflReferences = buildGFL(p, "hybrid_avi_gfl_bus7", GFL_C_F_L)
 
-        gfm = GFMAVI(1, p["VSGSbase_VA"], "hybrid_avi_gfm_bus9")
+        gfm = GFM_D_S_LC(1, p["VSGSbase_VA"], "hybrid_avi_gfm_bus9")
         for name, value in (
-            ("C", busCapacitance[gfmNode] / toGFM + p["GFMCf"]), ("Rg", lineR * toGFM), ("Lg", lineL * toGFM),
+            ("C", busCapacitance[gfmNode] / toGFM + p["gfmFilterC"]), ("Rg", lineR * toGFM), ("Lg", lineL * toGFM),
             ("Rf", p["GFMRf"]), ("Lf", p["GFMLf"]), ("Kp", p["GFMKp"]), ("Imax", p["GFMImax"]),
-            ("aviLaw", p["GFMaviLaw"]), ("Ith", p["GFMIth"]), ("kVI", p["GFMkVI"]),
+            ("kVI", p["GFMkVI"]),
             ("thetaVI", p["GFMthetaVI"]),
         ):
             gfm.p[name]["num"] = value
@@ -100,7 +96,7 @@ class HybridGFMAVIGFLSystem(System):
         }
         network = {"A": incidence, "R": branchR, "L": branchL, "busNames": busNames}
         super().__init__(
-            "HybridGFMAVIGFLSystem", network, devices,
+            type(self).__name__, network, devices,
             {"Vbase": 1, "Sbase": p["Sbase_VA"], "frequency_Hz": p["frequency_Hz"]},
             references,
         )
@@ -108,9 +104,7 @@ class HybridGFMAVIGFLSystem(System):
         self.parameters, self.parameterNames = p, list(p)
         self.busCapacitance = busCapacitance[:3]
         self.gfmBusCapacitance = busCapacitance[gfmNode]
-        self.qssRequiredSlowStateNames = [
-            str(gfl.x[4]), str(gfl.x[5]),
-        ] if p.get("gflModel", "GFLVSC") == "GFLVSC" else []
+        self.qssRequiredSlowStateNames = []   # GFL_C_F_L has no outer-loop integrators
         self.eventName = "faultClearing"
         self.eventDirection = 1
         self.eventTime_s = clearingTime_s
@@ -119,10 +113,10 @@ class HybridGFMAVIGFLSystem(System):
         self.eventStateIndex = self.stateNames.index(f"delta{gfm.index}")
 
     def sourceVoltage(self, time_s, p):
-        return CIGREMV14System.sourceVoltage(self, time_s, p)
+        return _CIGRE14.sourceVoltage(self, time_s, p)
 
     def eventHandler(self, time_s, state):
-        return CIGREMV14System.eventHandler(self, time_s, state)
+        return _CIGRE14.eventHandler(self, time_s, state)
 
     def calculateSignals(self, time_s, state, networkSignals):
         """Bus signals plus the GFM quantities on the GFM base.

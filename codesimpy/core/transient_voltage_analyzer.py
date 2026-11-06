@@ -270,7 +270,7 @@ class TransientVoltageAnalyzer:
         ``operatingPoint`` supplies the base ``state`` and ``reference``, for
         example from ``system.initialize`` or one simulation sample. Use
         ``offsets`` to express the scan in grid-relative angles. For a
-        ``VSGCC`` the grid-relative internal angle is
+        ``GFM_A_C_LC`` the grid-relative internal angle is
         ``delta + theta_vsg - theta_grid``, and for a PLL it is
         ``theta_pll - theta_grid``.
 

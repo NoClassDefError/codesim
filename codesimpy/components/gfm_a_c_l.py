@@ -1,4 +1,4 @@
-"""Virtual-admittance GFM without a PCC capacitor."""
+"""GFM_A_C_L: Virtual-admittance GFM without a PCC capacitor."""
 
 import numpy as np
 import sympy as sp
@@ -6,8 +6,8 @@ import sympy as sp
 from ..core import Device
 
 
-class VSGNoCapacitor(Device):
-    """Current-port VSG with its grid impedance embedded in the device."""
+class GFM_A_C_L(Device):
+    """GFM · A: virtual admittance + current PI · C: circular limit on the current reference · L: no terminal capacitor (current port; the grid branch Rg/Lg is in the device)."""
 
     def __init__(self, Vb: float, Sb: float, index: str) -> None:
         super().__init__(

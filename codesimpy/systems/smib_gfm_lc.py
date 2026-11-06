@@ -1,15 +1,18 @@
-"""Single grid-forming converter connected to an infinite bus."""
+"""SMIB__GFM_A_C_LC, SMIB__GFM_V_C_LC, SMIB__GFM_D_N_LC: one voltage-port GFM with its LC filter on an infinite bus."""
 
 from typing import Any
 
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
 
-from ..components import Infbus, VSGCC, VSGCCAVC, VSGCL, ZeroCurrent
+from ..components import GFM_A_C_LC, GFM_D_N_LC, GFM_V_C_LC, Infbus, ZeroCurrent
 from ..core import System
 
 
-class VSGSMIBSystem(System):
+class _SMIBGFMVoltagePort(System):
+    """SMIB with a voltage-port GFM (``DEVICE``) behind the grid impedance set by SCR and rho."""
+    DEVICE = GFM_A_C_LC
+
     @staticmethod
     def defaultParameters(overrides=None):
         p = {
@@ -21,7 +24,7 @@ class VSGSMIBSystem(System):
             "recoveryComplete_s": 1.001, "faultVoltage": 0.5,
             "validationTime_s": 2, "Rv": 0.05,
             "outputStep_s": 1e-4, "residualTolerance": 1e-4,
-            "deviceModel": "VSGCC", "clearingState": "delta",
+            "clearingState": "delta",
         }
         p.update(overrides or {})
         p["wBase"] = 2 * np.pi * p["frequency_Hz"]
@@ -36,9 +39,7 @@ class VSGSMIBSystem(System):
         return p
 
     def __init__(self, p: dict[str, Any]) -> None:
-        deviceModel = p["deviceModel"]
-        deviceClass = {"VSGCC": VSGCC, "VSGCCAVC": VSGCCAVC, "VSGCL": VSGCL}[deviceModel]
-        vsg = deviceClass(p["Vbase"], p["Sbase"], "vsg")
+        vsg = self.DEVICE(p["Vbase"], p["Sbase"], "vsg")
         if "Rv" in vsg.p:
             vsg.p["Rv"]["num"] = p["Rv"]
         if "Kp" in p:
@@ -67,7 +68,7 @@ class VSGSMIBSystem(System):
             "Vbase": p["Vbase"], "Sbase": p["Sbase"],
             "frequency_Hz": p["frequency_Hz"],
         }
-        super().__init__(f"VSGSMIBSystem_{deviceModel}", network, devices, base, refs)
+        super().__init__(type(self).__name__, network, devices, base, refs)
         self.solverSettings = {
             "method": "RK45",
             "max_step": 5e-3 / (2 * np.pi * self.base["frequency_Hz"]),
@@ -108,10 +109,10 @@ class VSGSMIBSystem(System):
         delta = state[:, self.stateNames.index(f"delta{vsg.index}")]
         inductorIndices = [self.stateNames.index(f"{name}{vsg.index}") for name in ("iLd", "iLq")]
         il = state[:, inductorIndices]
-        if isinstance(vsg, VSGCC):
+        if isinstance(vsg, GFM_A_C_LC):
             currentIndices = [self.stateNames.index(f"{name}{vsg.index}") for name in ("irefd", "irefq")]
             current = state[:, currentIndices]
-        elif isinstance(vsg, VSGCCAVC):
+        elif isinstance(vsg, GFM_V_C_LC):
             capacitorIndices = [self.stateNames.index(f"{name}{vsg.index}") for name in ("vCd", "vCq")]
             controllerIndices = [self.stateNames.index(f"{name}{vsg.index}") for name in ("xavcd", "xavcq")]
             vc, xavc = state[:, capacitorIndices], state[:, controllerIndices]
@@ -148,3 +149,18 @@ class VSGSMIBSystem(System):
             ])
             signals["busVoltageFundamentalMagnitude"] = np.abs((integral - delayed) / period)
         return signals
+
+
+class SMIB__GFM_A_C_LC(_SMIBGFMVoltagePort):
+    """SMIB · GFM_A_C_LC: virtual admittance + current PI, circular current-reference limit, LC filter."""
+    DEVICE = GFM_A_C_LC
+
+
+class SMIB__GFM_V_C_LC(_SMIBGFMVoltagePort):
+    """SMIB · GFM_V_C_LC: voltage PI + current PI, circular current-reference limit, LC filter."""
+    DEVICE = GFM_V_C_LC
+
+
+class SMIB__GFM_D_N_LC(_SMIBGFMVoltagePort):
+    """SMIB · GFM_D_N_LC: internal voltage directly behind the LC filter, no inner loops, no current limiter."""
+    DEVICE = GFM_D_N_LC
