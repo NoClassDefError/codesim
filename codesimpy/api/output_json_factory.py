@@ -491,14 +491,14 @@ class OutputJsonFactory:
         return {
             "available": True,
             "parameterName": str(analysis.get("gridParameterName", "")),
-            "parameterValue": float(analysis.get("gridParameterValue", np.nan)),
+            "parameterValue": (float(analysis["gridParameterValue"])
+                               if "gridParameterValue" in analysis else None),
             "partition": partition.tolist(),
             "partitionStateNames": partitionStateNames,
             "blockStarts": blockStarts.tolist(), "blocks": blocks,
             "maskedRows": list(maskRows), "maskedColumns": list(maskColumns),
-            "estimatedShift": self.complexPoint(
-                analysis["estimatedShiftMode12FromModes7And8"]
-            ),
+            "estimatedShift": (self.complexPoint(analysis["estimatedShift"])
+                               if "estimatedShift" in analysis else None),
             "reconstructionErrorFro": float(np.linalg.norm(
                 np.asarray(analysis["APartitioned"]) - np.asarray(analysis["ABack"])
             )),

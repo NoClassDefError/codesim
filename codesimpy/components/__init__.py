@@ -16,7 +16,6 @@ The full description is in each class docstring.
 from .capacitor import Capacitor
 from .cpl import CPL
 from .gfl_c_f_l import GFL_C_F_L
-from .gfl_long_term import GFLLongTerm
 from .gfl_p_f_l import GFL_P_F_L
 from .gfm_a_c_l import GFM_A_C_L
 from .gfm_a_c_lc import GFM_A_C_LC
@@ -31,7 +30,7 @@ from .zero_current import ZeroCurrent
 from .zip import ZIP
 
 __all__ = [
-    "Capacitor", "CPL", "GFLLongTerm", "Infbus", "InductionMotor", "PQLoad", "SG", "ZeroCurrent", "ZIP",
+    "Capacitor", "CPL", "Infbus", "InductionMotor", "PQLoad", "SG", "ZeroCurrent", "ZIP",
     "GFM_A_C_LC", "GFM_V_C_LC", "GFM_A_C_L", "GFM_D_N_LC", "GFM_D_L_LC", "GFM_D_S_LC", "GFM_D_H_LC",
     "GFL_P_F_L", "GFL_C_F_L",
 ]

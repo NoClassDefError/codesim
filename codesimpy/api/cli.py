@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 
-from ..core import SmallSignalAnalyzer
 from .. import systems as _systems
 from .output_json_factory import OutputJsonFactory
 
@@ -193,7 +192,7 @@ class CLI:
     def runInteraction(self, requestId: Any, params: dict[str, Any]) -> None:
         self.loadModel(params)
         self.system.smallSignal.analyze(self.getOperatingPoint())
-        self.runInteractionAnalysis()
+        self.runInteractionAnalysis(params)
         snapshotFile, descriptor = self.system.outputJsonFactory.saveSnapshot()
         self.outputJsonFactory.writeResponse(requestId, {
             "descriptor": descriptor, "snapshotFile": str(snapshotFile),
@@ -222,53 +221,12 @@ class CLI:
             "descriptor": descriptor, "snapshotFile": str(snapshotFile),
         })
 
-    def runInteractionAnalysis(self):
-        if self.systemName != "TwoBus__GFM_A_C_LC__GFL_P_F_L":
-            raise ValueError("interaction analysis requires TwoBus__GFM_A_C_LC__GFL_P_F_L")
-        vsgIndices = [
-            self.system.stateNames.index(str(symbol)) + 1
-            for symbol in self.system.devices["vsg"].x
-        ]
-        gflIndices = [
-            self.system.stateNames.index(str(symbol)) + 1
-            for symbol in self.system.devices["gfl"].x
-        ]
-        used = set(vsgIndices + gflIndices)
-        networkIndices = [
-            index for index in range(1, len(self.system.stateNames) + 1)
-            if index not in used
-        ]
-        partition = vsgIndices + gflIndices + networkIndices
-        blockStarts = [1, 1 + len(vsgIndices), 1 + len(vsgIndices) + len(gflIndices)]
-        maskedIndices = ([7, 8], [11, 12])
-        modalMatrix, stateMatrix, partitionedMatrix, reconstructedMatrix = (
-            self.system.smallSignal.partitionSubsystem(
-                partition, blockStarts, maskedIndices,
-            )
-        )
-        analysis = {
-            "partition": partition,
-            "dIdx": blockStarts,
-            "blockNames": ["GFM", "GFL", "Network / source"],
-            "maskedIdx": maskedIndices,
-            "gridParameterName": str(self.system.rlGrid.Lsym[0]),
-            "gridParameterValue": self.system.parameters["Lg"],
-            "DAll": modalMatrix,
-            "AOriginal": stateMatrix,
-            "APartitioned": partitionedMatrix,
-            "ABack": reconstructedMatrix,
-            "estimatedShiftMode12FromModes7And8": SmallSignalAnalyzer.estimateShift(
-                modalMatrix, 12, [7, 8],
-            ),
-            "shiftTable": self.system.smallSignal.listEigenvalueShift(
-                maskedIndices, partition, blockStarts,
-            ),
-            "modalTable": SmallSignalAnalyzer.analyzeModes(
-                stateMatrix,
-                self.system.stateNames,
-                [str(index) for index in range(1, len(self.system.stateNames) + 1)],
-            )["modeTable"],
-        }
+    def runInteractionAnalysis(self, params: dict[str, Any] | None = None):
+        """Modal interaction analysis of the loaded system: one block per unit device plus the
+        network/source block (see ``SmallSignalAnalyzer.devicePartition``). Optional
+        ``maskedIndices`` (one-based modal rows, columns) gives the reduced eigenvalues."""
+        params = params or {}
+        analysis = self.system.smallSignal.interactionAnalysis(params.get("maskedIndices"))
         self.system.outputJsonFactory.latestInteractionAnalysis = (
             self.system.outputJsonFactory.serializeInteractionAnalysis(analysis)
         )

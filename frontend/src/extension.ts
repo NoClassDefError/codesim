@@ -328,12 +328,6 @@ class CodeSimHost {
 		if (!selected) {
 			return;
 		}
-		if (analysis === 'interaction' && selected !== 'TwoBus__GFM_A_C_LC__GFL_P_F_L') {
-			void vscode.window.showWarningMessage(
-				'Interaction analysis currently supports TwoBus__GFM_A_C_LC__GFL_P_F_L only.',
-			);
-			return;
-		}
 		await this.runBackend(analysis, selected);
 	}
 

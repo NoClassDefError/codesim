@@ -131,9 +131,9 @@ export function Toolbar({
             <button
               type="button"
               className="toolbar-analysis-button"
-              disabled={modelUnavailable || selectedSystem !== 'TwoBus__GFM_A_C_LC__GFL_P_F_L'}
+              disabled={modelUnavailable}
               onClick={() => runAnalysis('interaction', selectedSystem)}
-              title="Run modal interaction analysis for TwoBus__GFM_A_C_LC__GFL_P_F_L"
+              title="Run modal interaction analysis (one block per device plus the network)"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="6" cy="7" r="2.5" />

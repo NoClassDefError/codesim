@@ -10,16 +10,13 @@ class GFL_C_F_L(Device):
 
     def __init__(self, Vb, Sb, index):
         super().__init__(Vb, Sb, "Current", index, {
-            "L": 3.25e-4, "Kicc": 5.0, "Kpcc": 0.1,
+            "L": 0.07, "Kicc": 5.0, "Kpcc": 0.1,
             "Rg": 0.0, "Lg": 0.0,
             "KpPll": 0.01, "KiPll": 0.5,
             "wPllMin": 0.8, "wPllMax": 1.2,
             "KawPll": 5.0, "w0": 1.0,
             "K1": 1.5, "Imax": 1.5,
             "Id2": 1.2, "Vth": 0.9,
-            # Retained for system-level reference and signal reporting.  This
-            # converter has no outer voltage loop, so Vctrl defaults to off.
-            "Vctrl": 0.0, "Vref": 1.0, "Kq": 1.0,
         }, (
             "id", "iq", "xPIccd", "xPIccq",
             "theta", "xPLL",

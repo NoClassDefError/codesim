@@ -164,14 +164,14 @@ export interface InteractionMatrixDescriptor {
 export interface InteractionAnalysisDescriptor {
   available: boolean;
   parameterName: string;
-  parameterValue: number;
+  parameterValue: number | null;
   partition: number[];
   partitionStateNames: string[];
   blockStarts: number[];
   blocks: InteractionBlockDescriptor[];
   maskedRows: number[];
   maskedColumns: number[];
-  estimatedShift: ComplexValueDescriptor;
+  estimatedShift: ComplexValueDescriptor | null;
   reconstructionErrorFro: number;
   modeShifts: InteractionModeShift[];
   localModes: InteractionLocalMode[];

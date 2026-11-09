@@ -35,7 +35,7 @@ class SMIB__GFL_C_F_L(System):
 
     def __init__(self, p):
         gfl = GFL_C_F_L(1, 8100, "1")
-        for name, value in (("Vctrl", 0), ("KpPll", 0.2), ("KiPll", 0.2), ("Vref", 1), ("Kq", 1)):
+        for name, value in (("KpPll", 0.2), ("KiPll", 0.2)):
             gfl.p[name]["num"] = value
         for name in ("Rg", "Lg", "K1", "Id2"):
             gfl.p[name]["num"] = p[name]
@@ -74,10 +74,6 @@ class SMIB__GFL_C_F_L(System):
         pccVoltage, gridVoltage = np.hypot(vd, vq), np.abs(gridVoltageComplex)
         activePower, reactivePower = vd * id + vq * iq, vq * id - vd * iq
         lvrtMode = 0.5 * (1 + np.tanh(50 * (gfl.p["Vth"]["num"] - pccVoltage)))
-        droopActive = gfl.p["Vctrl"]["num"] * (1 - lvrtMode)
-        qDroop = droopActive * (gfl.p["Vref"]["num"] - pccVoltage) / gfl.p["Kq"]["num"]
-        qCommand = net["referenceTrace"][0, 1] + qDroop
-        iqReferenceSchedule = -qCommand / np.maximum(pccVoltage, 1e-6)
         iqReferenceSupport = -gfl.p["K1"]["num"] * (gfl.p["Vth"]["num"] - pccVoltage)
         iqReferenceFRT = np.clip(iqReferenceSupport, -gfl.p["Imax"]["num"], gfl.p["Imax"]["num"])
         idReferenceFRT = np.minimum(gfl.p["Id2"]["num"], np.sqrt(np.maximum(0, gfl.p["Imax"]["num"]**2 - iqReferenceFRT**2)))
@@ -96,8 +92,7 @@ class SMIB__GFL_C_F_L(System):
             "referenceTrace": net["referenceTrace"], "pccVoltage": pccVoltage, "gridVoltage": gridVoltage,
             "id": id, "iq": iq, "vd": vd, "vq": vq, "thetaPLL": thetaPLL, "xPLL": xPLL,
             "thetaGrid": state[:, gridIdx[0]], "activePower": activePower, "reactivePower": reactivePower,
-            "lvrtMode": lvrtMode, "droopActive": droopActive, "qDroop": qDroop, "qCommand": qCommand,
-            "iqReferenceSchedule": iqReferenceSchedule, "iqReferenceSupport": iqReferenceSupport,
+            "lvrtMode": lvrtMode, "iqReferenceSupport": iqReferenceSupport,
             "iqReferenceFRT": iqReferenceFRT, "idReferenceFRT": idReferenceFRT,
             "gflCurrentMagnitude": np.hypot(id, iq),
             "pllFrequencyRaw": pllFrequencyRaw,

@@ -10,7 +10,7 @@ class GFL_P_F_L(Device):
 
     def __init__(self, Vb, Sb, index):
         super().__init__(Vb, Sb, "Current", index, {
-            "L": 3.25e-4, "Kicc": 5.0, "Kpcc": 0.1,
+            "L": 0.07, "Kicc": 5.0, "Kpcc": 0.1,
             "KpPll": 0.01, "KiPll": 0.5, "wPllMin": 0.8,
             "wPllMax": 1.2, "KawPll": 5.0, "kpP": 0.02,
             "kiP": 1e-3, "kpQ": 0.02, "kiQ": 1e-3,

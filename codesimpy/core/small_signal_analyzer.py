@@ -330,6 +330,64 @@ class SmallSignalAnalyzer:
         reconstructedMatrix = rightBasis @ modalMatrix @ leftBasis.conj().T
         return modalMatrix, stateMatrix, partitionedMatrix, reconstructedMatrix
 
+    # Devices that belong to the network/source block of an interaction analysis.
+    NETWORK_DEVICE_TYPES = ("Infbus", "Capacitor", "ZeroCurrent")
+
+    def devicePartition(self, devices: Iterable[Any] | None = None):
+        """One block per unit device plus one ``Network / source`` block.
+
+        ``devices`` defaults to every device of the RL grid that has states and is
+        not an ``Infbus``, ``Capacitor`` or ``ZeroCurrent``; their states form one
+        block each, in grid order. All other states (branch currents, line
+        capacitors, sources) form the last block. Returns the one-based
+        ``partition`` and ``blockStarts`` expected by :meth:`partitionSubsystem`
+        and the block names.
+        """
+        names, grid = self.system.stateNames, self.system.rlGrid
+        if devices is None:
+            devices = [device for device in list(grid.Vdev) + list(grid.Idev)
+                       if type(device).__name__ not in self.NETWORK_DEVICE_TYPES and len(device.x)]
+        blocks, used = [], set()
+        for device in devices:
+            indices = [names.index(str(symbol)) for symbol in device.x]
+            blocks.append((f"{type(device).__name__} {str(device.index).lstrip('_')}", indices))
+            used.update(indices)
+        rest = [index for index in range(len(names)) if index not in used]
+        if rest:
+            blocks.append(("Network / source", rest))
+        partition = [index + 1 for _, indices in blocks for index in indices]
+        blockStarts = list(np.cumsum([1] + [len(indices) for _, indices in blocks[:-1]]))
+        return partition, [int(start) for start in blockStarts], [name for name, _ in blocks]
+
+    def interactionAnalysis(self, maskedIndices: Any = None, devices: Iterable[Any] | None = None,
+                            estimateShift: tuple[int, Any] | None = None) -> dict[str, Any]:
+        """Modal interaction analysis of any system, partitioned by :meth:`devicePartition`.
+
+        The local eigenvalues are those of the diagonal blocks of the state matrix (each
+        device with the rest of the system frozen at the operating point); the full
+        eigenvalues are those of the whole state matrix. ``maskedIndices`` (one-based
+        modal rows, columns) removes selected couplings for the reduced eigenvalues;
+        ``estimateShift = (target, interactions)`` adds the shift estimate of
+        :meth:`estimateShift`.
+        """
+        partition, blockStarts, blockNames = self.devicePartition(devices)
+        masked = maskedIndices if maskedIndices is not None else ([], [])
+        modalMatrix, stateMatrix, partitionedMatrix, reconstructedMatrix = (
+            self.partitionSubsystem(partition, blockStarts, masked))
+        analysis = {
+            "partition": partition, "dIdx": blockStarts, "blockNames": blockNames,
+            "maskedIdx": masked, "DAll": modalMatrix, "AOriginal": stateMatrix,
+            "APartitioned": partitionedMatrix, "ABack": reconstructedMatrix,
+            "shiftTable": self.listEigenvalueShift(masked, partition, blockStarts),
+            "modalTable": self.analyzeModes(
+                stateMatrix, self.system.stateNames,
+                [str(index) for index in range(1, len(self.system.stateNames) + 1)],
+            )["modeTable"],
+        }
+        if estimateShift is not None:
+            analysis["estimatedShift"] = self.estimateShift(modalMatrix, *estimateShift)
+        return analysis
+
     def eigenvalueShift(self, partition: Any, blockStarts: Any, maskedIndices: Any = None):
         modalMatrix, *_ = self.partitionSubsystem(partition, blockStarts, maskedIndices)
         return np.linalg.eigvals(modalMatrix), np.diag(modalMatrix)

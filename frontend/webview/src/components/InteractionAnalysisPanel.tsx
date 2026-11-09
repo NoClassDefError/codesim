@@ -380,13 +380,17 @@ export function InteractionAnalysisPanel({ snapshot }: { snapshot: SystemSnapsho
       <div className="interaction-summary">
         <span><strong>{result.blocks.length}</strong> subsystem blocks</span>
         <span><strong>{result.modeShifts.length}</strong> tracked modes</span>
-        <span>
-          <strong>{result.parameterName || 'Parameter'}</strong>
-          {' = '}{formatNumber(result.parameterValue)}
-        </span>
-        <span>
-          Estimated shift <strong>{formatComplex(result.estimatedShift)}</strong>
-        </span>
+        {result.parameterName && result.parameterValue !== null ? (
+          <span>
+            <strong>{result.parameterName}</strong>
+            {' = '}{formatNumber(result.parameterValue)}
+          </span>
+        ) : null}
+        {result.estimatedShift ? (
+          <span>
+            Estimated shift <strong>{formatComplex(result.estimatedShift)}</strong>
+          </span>
+        ) : null}
         <span>Reconstruction error <strong>{formatNumber(result.reconstructionErrorFro)}</strong></span>
       </div>
 

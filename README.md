@@ -88,19 +88,20 @@ Systems are named like a serial number, `Network__Unit__Unit`. A unit is a conve
 | Control | `A` virtual admittance + current PI; `V` voltage PI + current PI; `D` direct (internal voltage behind the filter, no inner loops); `P` GFL with outer P/Q loops; `C` GFL with current references |
 | Limiter | `C` circular limit on the current reference; `L` linear adaptive virtual impedance; `S` smooth circular CLC; `H` hard circular CLC; `N` none; `F` GFL FRT/LVRT current priority |
 | Filter | `LC` with filter (terminal) capacitor; `L` without |
-| Network | `SMIB` one unit + infinite bus; `Parallel2` two GFMs + infinite bus; `TwoBus` GFM and GFL at one PCC; `CIGRE4` four-node CIGRE reduction (buses 7, 8, 9); `CIGRE14` full CIGRE MV feeder; `IEEE13` IEEE 13-node feeder |
+| Network | `SMIB` one unit + infinite bus; `Parallel2` two GFMs + infinite bus; `CIGRE4` four-node CIGRE reduction (buses 7, 8, 9); `CIGRE4RX` the same with every series impedance at the grid R/X; `CIGRE14` full CIGRE MV feeder; `IEEE13` IEEE 13-node feeder |
 
 | System | Description |
 | --- | --- |
 | `SMIB__GFM_A_C_LC`, `SMIB__GFM_V_C_LC`, `SMIB__GFM_D_N_LC` | One voltage-port GFM with its LC filter on an infinite bus |
 | `SMIB__GFM_A_C_L` | GFM without terminal capacitor (grid impedance embedded in the device) |
 | `SMIB__GFM_D_L_LC`, `SMIB__GFM_D_S_LC`, `SMIB__GFM_D_H_LC` | Direct GFM with linear adaptive VI, smooth or hard circular CLC |
-| `SMIB__GFL_C_F_L`, `SMIB__GFL_P_F_LC` | GFL low-voltage ride-through studies, without / with terminal capacitor |
+| `SMIB__GFL_C_F_L`, `SMIB__GFL_C_F_LC`, `SMIB__GFL_P_F_LC` | GFL low-voltage ride-through studies: current references without / with terminal capacitor, outer P/Q loops with terminal capacitor |
 | `SMIB__SG` | Synchronous generator on an infinite bus |
 | `Parallel2__GFM_D_N_LC` | Two GFMs connected in parallel through separate branches |
-| `TwoBus__GFM_A_C_LC__GFL_P_F_L`, `TwoBus__GFM_A_C_LC` | GFM with / without a parallel GFL at one PCC; interaction analysis |
 | `CIGRE4__GFM_A_C_LC__GFL_C_F_L`, `CIGRE4__GFM_A_C_LC__GFL_P_F_L` | Four-node CIGRE reduction with the virtual-admittance GFM and the GFL without / with outer loop |
 | `CIGRE4__GFM_D_S_LC__GFL_C_F_LC` | Four-node CIGRE reduction with the smooth-CLC GFM and both converter filter capacitors |
+| `CIGRE4__GFM_A_C_L__GFL_C_F_L`, `CIGRE4__GFM_A_C_L__GFM_A_C_L`, `CIGRE4__GFM_A_C_L` | Four-node CIGRE reduction with the no-capacitor virtual-admittance GFM at bus 8 and a GFL, a second GFM, or nothing at bus 7 |
+| `CIGRE4RX__GFM_A_C_L__GFM_A_C_L`, `CIGRE4RX__GFM_A_C_L` | As above on the R/X-matched corridor (Lemma 1/2) |
 | `CIGRE14__GFM_A_C_LC__GFL_P_F_L`, `CIGRE14__GFM_A_C_LC__GFL_C_F_L` | Full CIGRE MV 14-bus feeder with GFM and GFL |
 | `IEEE13`, `IEEE13__GFM_D_N_LC__GFL_P_F_L` | IEEE 13-bus feeder without / with converters |
 
@@ -165,7 +166,6 @@ Export the class from `codesimpy/components/__init__.py` and instantiate it in a
 
 - Three-phase unbalanced systems have not yet been validated.
 - Detailed switching models and switching events are not supported.
-- Interaction analysis is currently specific to `TwoBus__GFM_A_C_LC__GFL_P_F_L`.
 - The project is a research-oriented model library rather than a replacement for switching-level EMT tools.
 
 ## License and policies
