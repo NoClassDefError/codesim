@@ -1,0 +1,1353 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <script>try { const t = localStorage.getItem('gfm-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) { }</script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Interactive GFM Current-Limiting Geometry</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #657087;
+      --grid: #d9e0ea;
+      --border: #d7dee9;
+      --blue: #2f7dd1;
+      --orange: #db9134;
+      --red: #d74d55;
+      --green: #218b70;
+      --purple: #7558be;
+      --shadow: 0 14px 40px rgba(31, 52, 78, 0.10);
+    }
+
+    /* Dark theme: follows the system unless the switch forces light or dark. */
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #111724;
+        --panel: #1a2231;
+        --text: #eef3fb;
+        --muted: #acb7c9;
+        --grid: #344055;
+        --border: #344055;
+        --blue: #67aaf0;
+        --orange: #f0ad54;
+        --red: #ef7379;
+        --green: #55c2a2;
+        --purple: #a28ae5;
+        --shadow: 0 14px 40px rgba(0, 0, 0, 0.26);
+      }
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #111724;
+      --panel: #1a2231;
+      --text: #eef3fb;
+      --muted: #acb7c9;
+      --grid: #344055;
+      --border: #344055;
+      --blue: #67aaf0;
+      --orange: #f0ad54;
+      --red: #ef7379;
+      --green: #55c2a2;
+      --purple: #a28ae5;
+      --shadow: 0 14px 40px rgba(0, 0, 0, 0.26);
+    }
+
+    :root[data-theme="light"] {
+      color-scheme: light;
+    }
+
+    .theme-toggle {
+      margin-left: auto;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, "Segoe UI", system-ui, sans-serif;
+    }
+
+    main {
+      width: min(1480px, calc(100% - 32px));
+      margin: 22px auto 32px;
+    }
+
+    header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      margin: 0 0 5px;
+      font-size: clamp(22px, 2.4vw, 34px);
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+
+    .sub {
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .formula {
+      font-family: Cambria, "Times New Roman", serif;
+      font-size: 20px;
+      white-space: nowrap;
+    }
+
+    .panels {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .systems {
+      margin-top: 16px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      box-shadow: var(--shadow);
+      padding: 17px;
+      min-width: 0;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    h2 {
+      margin: 0 0 4px;
+      font-size: 24px;
+      font-weight: 650;
+    }
+
+    .panel-note {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .badge::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+
+    .normal {
+      color: var(--green);
+      background: color-mix(in srgb, var(--green) 12%, transparent);
+    }
+
+    .limited {
+      color: var(--red);
+      background: color-mix(in srgb, var(--red) 12%, transparent);
+    }
+
+    .frt {
+      color: var(--purple);
+      background: color-mix(in srgb, var(--purple) 12%, transparent);
+    }
+
+    .visuals {
+      display: grid;
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
+      gap: 12px;
+    }
+
+    .figure {
+      min-width: 0;
+    }
+
+    .figure-title {
+      font-size: 15px;
+      color: var(--muted);
+      margin: 0 0 5px 5px;
+    }
+
+    svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--panel) 96%, var(--bg));
+    }
+
+    svg text {
+      font-family: Inter, "Segoe UI", system-ui, sans-serif;
+    }
+
+    .axis {
+      stroke: var(--grid);
+      stroke-width: 1;
+    }
+
+    .tick {
+      fill: var(--muted);
+      font-size: 12.5px;
+    }
+
+    .label {
+      fill: var(--text);
+      font-size: 14px;
+      font-weight: 600;
+      paint-order: stroke;
+      stroke: var(--panel);
+      stroke-width: 3px;
+      stroke-linejoin: round;
+    }
+
+    .small-label {
+      fill: var(--muted);
+      font-size: 12.5px;
+      paint-order: stroke;
+      stroke: var(--panel);
+      stroke-width: 3px;
+    }
+
+    .source-circle {
+      fill: none;
+      stroke: var(--blue);
+      stroke-width: 2.2;
+    }
+
+    .unlimited-circle {
+      fill: none;
+      stroke: var(--green);
+      stroke-width: 1.8;
+      stroke-dasharray: 7 5;
+    }
+
+    .limit-circle {
+      fill: none;
+      stroke: var(--red);
+      stroke-width: 1.8;
+      stroke-dasharray: 7 5;
+    }
+
+    .contribution {
+      stroke: var(--red);
+      stroke-width: 2.4;
+      stroke-linecap: round;
+    }
+
+    .difference {
+      stroke: var(--green);
+      stroke-width: 2.4;
+      stroke-linecap: round;
+    }
+
+    .radius {
+      stroke: var(--blue);
+      stroke-width: 2;
+      stroke-linecap: round;
+    }
+
+    .delta-arc {
+      fill: none;
+      stroke: var(--blue);
+      stroke-width: 1.5;
+    }
+
+    .theta-arc {
+      fill: none;
+      stroke: var(--purple);
+      stroke-width: 1.5;
+    }
+
+    .gfl-contribution {
+      stroke: var(--purple);
+      stroke-width: 2.2;
+      stroke-linecap: round;
+    }
+
+    .gfl-circle {
+      fill: none;
+      stroke: var(--purple);
+      stroke-width: 1.6;
+      stroke-dasharray: 5 5;
+    }
+
+    .limit-boundary {
+      fill: none;
+      stroke: var(--red);
+      stroke-width: 1.6;
+    }
+
+    .frt-boundary {
+      fill: none;
+      stroke: var(--purple);
+      stroke-width: 1.6;
+      stroke-dasharray: 4 3;
+    }
+
+    .frt-boundary.map-boundary {
+      stroke-dasharray: 6 4;
+    }
+
+    .boundary-halo {
+      fill: none;
+      stroke: var(--panel);
+      stroke-width: 6;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .map-boundary {
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .mode-label {
+      fill: var(--text);
+      font-size: 12.5px;
+      font-weight: 600;
+      paint-order: stroke;
+      stroke: var(--panel);
+      stroke-width: 3px;
+      stroke-linejoin: round;
+    }
+
+    .dot-source {
+      fill: var(--blue);
+    }
+
+    .dot-base {
+      fill: var(--text);
+    }
+
+    .dot-terminal {
+      fill: var(--green);
+    }
+
+    .curve {
+      fill: none;
+      stroke: var(--green);
+      stroke-width: 2.7;
+    }
+
+    .curve-unc {
+      fill: none;
+      stroke: var(--purple);
+      stroke-width: 1.4;
+      stroke-dasharray: 5 4;
+      opacity: .8;
+    }
+
+    .current-line {
+      stroke: var(--blue);
+      stroke-width: 1.2;
+      opacity: .75;
+    }
+
+    .peak-line {
+      stroke: var(--orange);
+      stroke-width: 1.1;
+      stroke-dasharray: 4 4;
+    }
+
+    .peak-dot {
+      fill: var(--orange);
+      stroke: var(--panel);
+      stroke-width: 2;
+    }
+
+    .control {
+      margin-top: 13px;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .dual-control {
+      margin-top: 13px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .slider-row {
+      display: grid;
+      grid-template-columns: 62px 1fr 58px;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .slider-row label {
+      color: var(--muted);
+      font-size: 19px;
+      font-weight: 600;
+    }
+
+    button {
+      appearance: none;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 9px;
+      padding: 7px 11px;
+      font: inherit;
+      font-size: 15px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--bg);
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--blue);
+      cursor: pointer;
+    }
+
+    .delta-value {
+      font-variant-numeric: tabular-nums;
+      min-width: 58px;
+      text-align: right;
+      font-weight: 650;
+      font-size: 19px;
+    }
+
+    .readout.pq {
+      margin-top: 8px;
+    }
+
+    .readout {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      margin-top: 11px;
+    }
+
+    .metric {
+      background: var(--bg);
+      border-radius: 10px;
+      padding: 8px 10px;
+      min-width: 0;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 17px;
+      margin-bottom: 3px;
+    }
+
+    .metric strong {
+      font-size: 21px;
+      font-variant-numeric: tabular-nums;
+      white-space: normal;   /* "pu · MW" values may wrap in narrow columns */
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      margin: 2px 0 12px;
+      color: var(--text);
+      font-size: 17px;
+    }
+
+    .legend i {
+      display: inline-block;
+      width: 24px;
+      height: 4px;
+      margin-right: 5px;
+      vertical-align: middle;
+      border-radius: 3px;
+    }
+
+    .takeaway {
+      margin: 15px 2px 0;
+      padding: 12px 14px;
+      border-left: 4px solid var(--blue);
+      background: color-mix(in srgb, var(--blue) 7%, transparent);
+      border-radius: 0 10px 10px 0;
+      font-size: 16px;
+      line-height: 1.55;
+    }
+
+    .param-box {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px 14px;
+      margin-bottom: 14px;
+    }
+
+    .param-box summary {
+      cursor: pointer;
+      font-weight: 650;
+      font-size: 18px;
+    }
+
+    .param-status {
+      color: var(--muted);
+      font-weight: 400;
+      font-size: 14px;
+      margin-left: 8px;
+    }
+
+    .param-groups {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 10px;
+    }
+
+    .param-group h3 {
+      margin: 0 0 6px;
+      font-size: 15px;
+      color: var(--muted);
+      font-weight: 650;
+    }
+
+    .param-fields {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(135px, 1fr));
+      gap: 6px 8px;
+    }
+
+    .param-fields label {
+      display: grid;
+      gap: 2px;
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .param-fields input {
+      width: 100%;
+      font: inherit;
+      font-size: 15px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 4px 6px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .param-fields input.changed {
+      border-color: var(--orange);
+    }
+
+    .param-fields input:invalid {
+      border-color: var(--red);
+    }
+
+    .param-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .tabs button {
+      border-radius: 999px;
+      padding: 7px 14px;
+      font-weight: 600;
+    }
+
+    .tabs button[aria-selected="true"] {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #fff;
+    }
+
+    .tab-panels {
+      max-width: 1480px;
+    }
+
+    .tab-panels>.panel:not(#panel-coupled) {
+      max-width: 1150px;
+    }
+
+    .visuals.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+
+    .tab-panels>.panel {
+      display: none;
+    }
+
+    .coupled-map,
+    .energy-map {
+      cursor: crosshair;
+      touch-action: none;
+    }
+
+    .tab-panels>.panel.active {
+      display: block;
+    }
+
+    @media (max-width: 1050px) {
+
+      .panels,
+      .visuals.three {
+        grid-template-columns: 1fr;
+      }
+
+      .param-groups {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 620px) {
+      main {
+        width: min(100% - 18px, 1480px);
+        margin-top: 10px;
+      }
+
+      header {
+        display: block;
+      }
+
+      .formula {
+        margin-top: 8px;
+        display: block;
+      }
+
+      .visuals {
+        grid-template-columns: 1fr;
+      }
+
+      .readout {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main>
+    <!-- <header>
+    <div>
+      <h1>How GFM Current Limiting Changes the Voltage Peaks</h1>
+      <p class="sub">Defaults: benchmark CIGRE4__GFM_A_C_LC__GFL_C_F_L. Fundamental-frequency phasors on the <span data-p="Sbase"></span> MVA system base; v<sub>t</sub> is the bus-8 (PCC) voltage; converter currents are in pu of their own ratings.</p>
+    </div>
+    <div class="formula">v<sub>t</sub> = v<sub>g</sub> + Z<sub>g</sub>i<sub>L</sub> + Z<sub>g</sub>i<sub>M</sub></div>
+  </header> -->
+
+    <details class="param-box" open>
+      <summary>Parameters <span class="param-status"></span></summary>
+      <div class="param-groups"></div>
+      <div class="param-actions"><button type="button" class="param-reset" data-preset="bench">Reset to
+          benchmark</button><button type="button" class="param-reset" data-preset="case1">Reset to case 1</button><span
+          class="panel-note">Values update all tabs when an input changes. Network impedances in pu on the system base;
+          converter parameters in pu of their own rating.</span></div>
+    </details>
+
+    <nav class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="panel-limited">1 · GFM, current limit</button>
+      <button type="button" role="tab" data-tab="panel-gfl-smib">2 · GFL with FRT</button>
+      <button type="button" role="tab" data-tab="panel-coupled">3 · GFL + GFM</button>
+      <button type="button" class="theme-toggle" aria-label="Switch between light and dark mode"></button>
+    </nav>
+
+    <section class="tab-panels">
+      <article class="panel" id="panel-limited" role="tabpanel">
+        <div class="panel-head">
+          <div>
+            <h2>With Circular Current Limiting</h2>
+          </div>
+          <span class="badge state"></span>
+        </div>
+        <div class="legend"><span><i style="background:var(--blue)"></i>v<sub>s</sub></span><span><i
+              style="background:var(--red)"></i>Z<sub>g</sub>i<sub>M</sub></span><span><i
+              style="background:var(--green)"></i>GFM internal voltage drop</span><span><i
+              style="background:var(--purple)"></i>v<sub>t</sub> without limiting</span></div>
+        <div class="visuals">
+          <div class="figure">
+            <div class="figure-title">Complex-voltage plane</div><svg class="phasor" viewBox="0 0 360 330" role="img"
+              aria-label="Phasor diagram with circular current limiting"></svg>
+          </div>
+          <div class="figure">
+            <div class="figure-title">Terminal-voltage magnitude versus δ</div><svg class="plot" viewBox="0 0 330 330"
+              role="img" aria-label="Terminal-voltage curve with current limiting"></svg>
+          </div>
+        </div>
+        <div class="control"><button type="button" class="play">▶ Play</button><input class="slider" type="range"
+            min="-180" max="180" step="1" value="48" aria-label="Delta with current limiting"><output
+            class="delta-value">48°</output></div>
+        <div class="readout">
+          <div class="metric"><span>|i<sub>M</sub>|</span><strong class="iM"></strong></div>
+          <div class="metric"><span>|Z<sub>g</sub>i<sub>M</sub>|</span><strong class="zgim"></strong></div>
+          <div class="metric"><span>|v<sub>t</sub>|</span><strong class="vtmag"></strong></div>
+        </div>
+        <div class="readout pq" style="grid-template-columns:repeat(2,1fr)">
+          <div class="metric"><span>P<sub>GFM</sub></span><strong class="pq-PM"></strong></div>
+          <div class="metric"><span>Q<sub>GFM</sub></span><strong class="pq-QM"></strong></div>
+        </div>
+      </article>
+
+      <article class="panel" id="panel-gfl-smib" role="tabpanel">
+        <div class="panel-head">
+          <div>
+            <h2>GFL–Infinite-Bus System with FRT</h2>
+          </div>
+          <span class="badge gfl-frt-state"></span>
+        </div>
+        <div class="legend"><span><i style="background:var(--blue)"></i>v<sub>g</sub></span><span><i
+              style="background:var(--purple)"></i>v<sub>7</sub> − v<sub>g</sub> = (Z<sub>g</sub> +
+            Z<sub>78</sub>)i<sub>L</sub></span><span><i style="background:var(--green)"></i>|v<sub>7</sub>| with
+            FRT</span><span><i style="background:var(--purple)"></i>|v<sub>7</sub>| without FRT</span></div>
+        <div class="visuals">
+          <div class="figure">
+            <div class="figure-title">Complex-voltage plane</div><svg class="gfl-phasor" viewBox="0 0 360 330"
+              role="img" aria-label="GFL connected to an infinite bus"></svg>
+          </div>
+          <div class="figure">
+            <div class="figure-title">GFL terminal-voltage magnitude |v<sub>7</sub>| versus θ</div><svg class="gfl-plot"
+              viewBox="0 0 330 330" role="img" aria-label="GFL terminal voltage versus current angle"></svg>
+          </div>
+        </div>
+        <div class="control"><span></span><input class="theta-slider" type="range" min="-180" max="180" step="1"
+            value="90" aria-label="GFL current angle theta"><output class="theta-value delta-value">90°</output></div>
+        <div class="readout">
+          <div class="metric"><span>i<sub>d</sub></span><strong class="gfl-id"></strong></div>
+          <div class="metric"><span>i<sub>q,FRT</sub></span><strong class="gfl-iq"></strong></div>
+          <div class="metric"><span>|v<sub>7</sub>|</span><strong class="gfl-vt"></strong></div>
+        </div>
+        <div class="readout pq" style="grid-template-columns:repeat(3,1fr)">
+          <div class="metric"><span>P<sub>GFL</sub></span><strong class="pq-PL"></strong></div>
+          <div class="metric"><span>Q<sub>GFL</sub></span><strong class="pq-QL"></strong></div>
+          <div class="metric"><span>v<sub>q</sub> (PLL frame)</span><strong class="pll-vq"></strong></div>
+        </div>
+      </article>
+
+      <article class="panel" id="panel-coupled" role="tabpanel">
+        <div class="panel-head">
+          <div>
+            <h2>GFL–GFM–Infinite-Bus System with FRT</h2>
+          </div>
+          <span class="badge coupled-state"></span>
+        </div>
+        <div class="legend"><span><i style="background:var(--blue)"></i>v<sub>s</sub></span><span><i
+              style="background:var(--purple)"></i>Z<sub>g</sub>i<sub>L</sub></span><span><i
+              style="background:var(--red)"></i>Z<sub>g</sub>i<sub>M</sub></span><span><i
+              style="background:var(--green)"></i>GFM internal voltage drop</span></div>
+        <div class="visuals three">
+          <div class="figure">
+            <div class="figure-title">Complex-voltage plane</div><svg class="coupled-phasor" viewBox="0 0 360 330"
+              role="img" aria-label="GFL GFM and infinite-bus phasor diagram"></svg>
+          </div>
+          <div class="figure">
+            <div class="figure-title" aria-hidden="true">&nbsp;</div><svg class="coupled-map" viewBox="0 0 330 330" role="img"
+              aria-label="Terminal-voltage magnitude and operating-mode boundaries over delta and theta"></svg>
+          </div>
+          <div class="figure">
+            <div class="figure-title" aria-hidden="true">&nbsp;</div><svg class="energy-map" viewBox="0 0 330 330" role="img"
+              aria-label="Energy dissipation rate over delta and theta"></svg>
+          </div>
+        </div>
+        <div class="dual-control">
+          <div class="slider-row"><label for="coupled-delta">δ</label><input id="coupled-delta" class="coupled-delta"
+              type="range" min="-180" max="180" step="1" value="60"><output
+              class="coupled-delta-value delta-value">60°</output></div>
+          <div class="slider-row"><label for="coupled-theta">θ</label><input id="coupled-theta" class="coupled-theta"
+              type="range" min="-180" max="180" step="1" value="90"><output
+              class="coupled-theta-value delta-value">90°</output></div>
+        </div>
+        <div class="readout" style="grid-template-columns:repeat(5,1fr)">
+          <div class="metric"><span>|i<sub>M</sub>|</span><strong class="coupled-iM"></strong></div>
+          <div class="metric"><span>i<sub>q,FRT</sub></span><strong class="coupled-iq"></strong></div>
+          <div class="metric"><span>|v<sub>t</sub>|</span><strong class="coupled-vt"></strong></div>
+          <div class="metric"><span>|v<sub>7</sub>|</span><strong class="coupled-v7"></strong></div>
+          <div class="metric"><span>V̇(δ, θ)</span><strong class="coupled-Edot"></strong></div>
+        </div>
+        <div class="readout pq" style="grid-template-columns:repeat(5,1fr)">
+          <div class="metric"><span>P<sub>GFM</sub></span><strong class="pq-PM"></strong></div>
+          <div class="metric"><span>Q<sub>GFM</sub></span><strong class="pq-QM"></strong></div>
+          <div class="metric"><span>P<sub>GFL</sub></span><strong class="pq-PL"></strong></div>
+          <div class="metric"><span>Q<sub>GFL</sub></span><strong class="pq-QL"></strong></div>
+          <div class="metric"><span>v<sub>q</sub> (PLL frame)</span><strong class="pll-vq"></strong></div>
+        </div>
+      </article>
+    </section>
+
+    <!-- <p class="takeaway"><strong>What to observe:</strong> The left curve has one peak at δ = 0°. The right curve retains that unlimited central peak and gains two limited peaks at δ ≈ ±48.2°. Move the right slider to ±48°: the red direction becomes tangent to the blue circle, so its inward component is weakest.</p>
+  <p class="takeaway"><strong>System comparison:</strong> In the GFL–infinite-bus block, FRT changes both the length and direction of Z<sub>g</sub>i<sub>L</sub> after the voltage crosses 0.9 pu. In the combined block, the same FRT law moves v<sub>g</sub> + Z<sub>g</sub>i<sub>L</sub>, while the GFM current limit independently constrains the red voltage contribution.</p> -->
+  </main>
+
+  <script>
+    (() => {
+      // Benchmark CIGRE4__GFM_A_C_LC__GFL_C_F_L (codesimpy/systems/cigre4_gfm_a_c_lc.py, cigre14.py).
+      // Network impedances in pu on the 25 MVA system base (w = 1 pu); line capacitances neglected.
+      const cx = (re, im = 0) => ({ re, im });
+      const BENCH = {
+        Sbase: 25, Vg: 1,                                      // MVA; infinite-bus magnitude
+        // upstream equivalent source-1-2-3-8 (series sum of the CIGRE branches)
+        Rg: 0.00049751859510499465 + 0.001 + 0.08830125 + 0.13840125 + 0.04070625,
+        Xg: 0.0049751859510499463 + 0.12 + 0.126195 + 0.197795 + 0.058175,
+        R78: 0.052291875, X78: 0.0747325, R89: 0.01002, X89: 0.01432,
+        Sgfm: 5, Vs: 1.1, Rv: 0.1, Lv: 0.3, ImaxM: 1.5, Pref: 1, KpP: 0.05, KpPll: 0.2,        // GFM_A_C_LC (own base)
+        Sgfl: 1.5, IdL: 1, Id2: 1.2, K1: 1.5, Vth: 0.9, ImaxL: 1.5   // GFL_C_F_L (own base)
+        , C12: 1                                               // v_g + Z_g i_L used in tabs 1-2 (GFL off: = v_g)
+      };
+      // Case 1: the original illustrative values (one common base, Z_g = j0.5, Z_v = j0.05).
+      const CASE1 = {
+        Sbase: 1, Vg: 1, Rg: 0, Xg: 0.5, R78: 0, X78: 0, R89: 0, X89: 0,
+        Sgfm: 1, Vs: 1, Rv: 0, Lv: 0.05, ImaxM: 1.2, Pref: 1, KpP: 0.05, KpPll: 0.2,
+        Sgfl: 1, IdL: 0.6, Id2: 0.6, K1: 2, Vth: 0.9, ImaxL: 1.2, C12: 1.5
+      };
+      const P = { ...BENCH };
+      let kM, kL;                                              // device pu -> system pu (current)
+      const $ = (s, root = document) => root.querySelector(s);
+      const ns = 'http://www.w3.org/2000/svg';
+      const el = (tag, attrs = {}, text = '') => { const n = document.createElementNS(ns, tag); for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v); if (text) n.textContent = text; return n; };
+      const add = (svg, tag, attrs = {}, text = '') => { const n = el(tag, attrs, text); svg.appendChild(n); return n; };
+      const polar = deg => ({ re: Math.cos(deg * Math.PI / 180), im: Math.sin(deg * Math.PI / 180) });
+      const sub = (a, b) => ({ re: a.re - b.re, im: a.im - b.im });
+      const addv = (a, b) => ({ re: a.re + b.re, im: a.im + b.im });
+      const mul = (a, k) => ({ re: a.re * k, im: a.im * k });
+      const cmul = (a, b) => ({ re: a.re * b.re - a.im * b.im, im: a.re * b.im + a.im * b.re });
+      const mag = a => Math.hypot(a.re, a.im);
+      const cdiv = (a, b) => { const d = b.re * b.re + b.im * b.im; return { re: (a.re * b.re + a.im * b.im) / d, im: (a.im * b.re - a.re * b.im) / d }; };
+      const arg = a => Math.atan2(a.im, a.re), unit = r => ({ re: Math.cos(r), im: Math.sin(r) });
+      const peakCache = {};
+      const derive = () => {
+        kM = P.Sgfm / P.Sbase; kL = P.Sgfl / P.Sbase;
+        P.vg = cx(P.Vg); P.Zg = cx(P.Rg, P.Xg); P.Z78 = cx(P.R78, P.X78); P.Z89 = cx(P.R89, P.X89);
+        P.Zv = cx(P.Rv / kM, P.Lv / kM);                            // GFM virtual impedance on system base
+        P.ZgM = addv(P.Zg, P.Z89); P.Ztot = addv(P.Zv, P.ZgM); P.ZgL = addv(P.Zg, P.Z78);
+        P.IM = P.ImaxM * kM; P.ZgAbs = mag(P.Zg); P.k = cdiv(P.Zg, P.Ztot);
+        delete peakCache[true]; delete peakCache[false]; renderCoupledMap.vals = null; renderEMap.data = null;
+      };
+      derive();
+
+      // GFM at bus 9 behind Zv: i_ref = (v_s - v_9)/Zv, i_M = i_ref limited to a circle of
+      // radius Imax; v_t = v_8 = c + Zg i_M with c = v_g + Zg i_L. The limited direction is
+      // the fixed point phi = arg(v_s - c - (Zg + Z89) Imax e^{j phi}) - arg(Zv).
+      // Roots of h(phi) = arg(v_s - c - (Zg+Z89) Imax e^{j phi}) - arg(Zv) - phi (wrapped): scan, then
+      // bisect each sign change; return the root closest to the unlimited current angle.
+      // (A plain fixed-point iteration diverges when |Zv| is small compared with |Zg|.)
+      const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+      const limitedAngle = (vs, c, guess) => {
+        const d = sub(vs, c), aZv = arg(P.Zv), h = phi => wrap(arg(sub(d, cmul(P.ZgM, mul(unit(phi), P.IM)))) - aZv - phi);
+        const N = 48, roots = []; let pa = -Math.PI, ha = h(pa);
+        for (let i = 1; i <= N; i++) {
+          const pb = -Math.PI + 2 * Math.PI * i / N, hb = h(pb);
+          if (ha === 0) roots.push(pa);
+          else if (ha * hb < 0 && Math.abs(ha - hb) < Math.PI) { let lo = pa, hi = pb, hl = ha; for (let k = 0; k < 40; k++) { const mid = (lo + hi) / 2, hm = h(mid); if (hl * hm <= 0) hi = mid; else { lo = mid; hl = hm; } } roots.push((lo + hi) / 2); }
+          pa = pb; ha = hb;
+        }
+        if (!roots.length) return guess;
+        return roots.reduce((a, b) => Math.abs(wrap(b - guess)) < Math.abs(wrap(a - guess)) ? b : a);
+      };
+      const gfmAt = (deg, c, applyLimit) => {
+        const vs = mul(polar(deg), P.Vs), drive = sub(vs, c), iUnc = cdiv(drive, P.Ztot);
+        const limited = applyLimit && mag(iUnc) > P.IM;
+        let iM = iUnc;
+        if (limited) iM = mul(unit(limitedAngle(vs, c, arg(iUnc))), P.IM);
+        const contrib = cmul(P.Zg, iM), vt = addv(c, contrib);
+        return { deg, vs, c, drive, iM, iMag: mag(iM) / kM, limited, contrib, vt, v9: addv(vt, cmul(P.Z89, iM)), vtUnc: addv(c, cmul(P.Zg, iUnc)) };
+      };
+      const stateAt = (deg, applyLimit) => gfmAt(deg, cx(P.C12), applyLimit);
+      const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+      // GFL_C_F_L current references at measured |v_7| = V (same tanh blend as the device model).
+      const gflRef = (V, frt) => {
+        if (!frt) return { id: P.IdL, q: 0, m: 0 };
+        const qL = Math.max(-P.ImaxL, Math.min(P.ImaxL, P.K1 * (P.Vth - V)));
+        const idL = Math.min(P.Id2, Math.sqrt(Math.max(P.ImaxL ** 2 - qL ** 2, 0)));
+        const m = (1 + Math.tanh(50 * (P.Vth - V))) / 2;
+        return { id: (1 - m) * P.IdL + m * idL, q: m * qL, m };
+      };
+      const iLof = (theta, r) => mul(cmul(polar(theta), { re: r.id, im: -r.q }), kL);   // system pu
+      const solveV = f => { let lo = 0, hi = 2; for (let k = 0; k < 50; k++) { const mid = (lo + hi) / 2; if (f(mid) - mid > 0) lo = mid; else hi = mid; } return (lo + hi) / 2; };
+
+      const gflAt = (theta, V, frt) => {
+        const r = gflRef(V, frt), iL = iLof(theta, r), zgiL = cmul(P.Zg, iL), v8 = addv(P.vg, zgiL);
+        return { theta, ...r, iL, zgiL, drop: cmul(P.ZgL, iL), v8, vt: addv(v8, cmul(P.Z78, iL)) };
+      };
+      const gflState = (theta, enableFRT = true) => {
+        const V = enableFRT ? solveV(v => mag(gflAt(theta, v, true).vt)) : 1, s = gflAt(theta, V, enableFRT);
+        return { ...s, frt: enableFRT && s.m > 0.5 };
+      };
+
+      const coupledAt = (deg, theta, V) => {
+        const r = gflRef(V, true), iL = iLof(theta, r), zgiL = cmul(P.Zg, iL), g = gfmAt(deg, addv(P.vg, zgiL), true);
+        return { ...g, theta, ...r, iL, zgiL, v7: addv(g.vt, cmul(P.Z78, iL)) };
+      };
+      const coupledState = (deg, theta) => {
+        const V = solveV(v => mag(coupledAt(deg, theta, v).v7)), s = coupledAt(deg, theta, V);
+        return { ...s, frt: s.m > 0.5 };
+      };
+
+      // Local maxima of |v_t|(delta), found numerically (with wrap-around at ±180°).
+      const findPeaks = applyLimit => {
+        if (peakCache[applyLimit]) return peakCache[applyLimit];
+        const ds = [], vs = []; for (let i = -1800; i < 1800; i++) { ds.push(i / 10); vs.push(mag(stateAt(i / 10, applyLimit).vt)); }
+        const n = vs.length, out = [];
+        for (let i = 0; i < n; i++) { const a = vs[(i - 1 + n) % n], b = vs[i], c = vs[(i + 1) % n]; if (b > a && b >= c) out.push(ds[i]); }
+        return peakCache[applyLimit] = out;
+      };
+      const niceTicks = (lo, hi) => {
+        const raw = Math.max(hi - lo, 1e-6) / 4, e = 10 ** Math.floor(Math.log10(raw)), f = raw / e, step = (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * e, t = [];
+        for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9; v += step) t.push(+v.toFixed(6));
+        return { t, step };
+      };
+      // Labels in the panel notes that quote parameter values.
+      const fillLabels = () => document.querySelectorAll('[data-p]').forEach(n => { n.textContent = String(+(+P[n.dataset.p]).toFixed(4)); });
+
+      function drawAxes(svg, map, xTicks, yTicks) {
+        add(svg, 'line', { x1: map.x(-2), y1: map.y(0), x2: map.x(2), y2: map.y(0), class: 'axis' });
+        add(svg, 'line', { x1: map.x(0), y1: map.y(-1.45), x2: map.x(0), y2: map.y(1.45), class: 'axis' });
+        xTicks.forEach(v => { add(svg, 'line', { x1: map.x(v), y1: map.y(0) - 4, x2: map.x(v), y2: map.y(0) + 4, class: 'axis' }); add(svg, 'text', { x: map.x(v), y: map.y(0) + 16, 'text-anchor': 'middle', class: 'tick' }, String(v)); });
+        yTicks.filter(v => v !== 0).forEach(v => { add(svg, 'line', { x1: map.x(0) - 4, y1: map.y(v), x2: map.x(0) + 4, y2: map.y(v), class: 'axis' }); add(svg, 'text', { x: map.x(0) - 7, y: map.y(v) + 3, 'text-anchor': 'end', class: 'tick' }, String(v)); });
+        add(svg, 'text', { x: 342, y: map.y(0) - 7, 'text-anchor': 'end', class: 'small-label' }, 'Re');
+        add(svg, 'text', { x: map.x(0) + 7, y: 13, class: 'small-label' }, 'Im');
+      }
+
+      function arrow(svg, a, b, cls, marker) {
+        add(svg, 'line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: cls, 'marker-end': `url(#${marker})` });
+      }
+
+      function angleArc(svg, O, deg, r, label, cls = 'delta-arc') {
+        const angle = deg * Math.PI / 180;
+        if (Math.abs(deg) > 0.5) {
+          const start = { x: O.x + r, y: O.y }, end = { x: O.x + r * Math.cos(angle), y: O.y - r * Math.sin(angle) };
+          add(svg, 'path', { d: `M ${start.x} ${start.y} A ${r} ${r} 0 0 ${deg > 0 ? 0 : 1} ${end.x} ${end.y}`, class: cls });
+          const mid = angle / 2, labelR = r + 11;
+          add(svg, 'text', { x: O.x + labelR * Math.cos(mid), y: O.y - labelR * Math.sin(mid) + 4, 'text-anchor': 'middle', class: 'label' }, label);
+        } else add(svg, 'text', { x: O.x + r + 8, y: O.y - 7, 'text-anchor': 'middle', class: 'label' }, `${label} = 0°`);
+      }
+
+      function renderPhasor(svg, s, applyLimit) {
+        svg.replaceChildren();
+        const defs = add(svg, 'defs');
+        const colors = { blue: css('--blue'), red: css('--red'), green: css('--green'), purple: css('--purple') };
+        Object.entries(colors).forEach(([name, color]) => { const m = add(defs, 'marker', { id: `${svg.dataset.id}-${name}`, viewBox: '0 0 10 10', refX: 8.2, refY: 5, markerWidth: 3.8, markerHeight: 3.8, orient: 'auto-start-reverse' }); add(m, 'path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: color }); });
+        // One common scale in both directions is essential: otherwise true circles
+        // appear as ellipses and the phasor endpoints no longer touch their loci.
+        const map = { x: x => 118 + 105 * x, y: y => 165 - 105 * y };
+        drawAxes(svg, map, [0, 0.5, 1, 1.5, 2], [-1, -0.5, 0, 0.5, 1]);
+        const circle = (center, r, cls) => add(svg, 'circle', { cx: map.x(center.re), cy: map.y(center.im), r: Math.abs(map.x(center.re + r) - map.x(center.re)), class: cls });
+        circle({ re: 0, im: 0 }, P.Vs, 'source-circle');
+        const c12 = cx(P.C12);
+        if (applyLimit) circle(c12, P.ZgAbs * P.IM, 'limit-circle');
+        else circle(sub(c12, cmul(P.k, c12)), mag(P.k) * P.Vs, 'unlimited-circle');
+        const pt = v => ({ x: map.x(v.re), y: map.y(v.im) }), O = pt({ re: 0, im: 0 }), C = pt(c12), VS = pt(s.vs), VT = pt(s.vt);
+        arrow(svg, O, VS, 'radius', `${svg.dataset.id}-blue`);
+        arrow(svg, C, VT, 'contribution', `${svg.dataset.id}-red`);
+        arrow(svg, VT, VS, 'difference', `${svg.dataset.id}-green`);
+        angleArc(svg, O, s.deg, 31, 'δ');
+        if (applyLimit) {
+          const U = pt(s.vtUnc); add(svg, 'line', { x1: C.x, y1: C.y, x2: U.x, y2: U.y, class: 'curve-unc' }); add(svg, 'circle', { cx: U.x, cy: U.y, r: 3.5, fill: colors.purple });
+        }
+        add(svg, 'circle', { cx: VS.x, cy: VS.y, r: 4.5, class: 'dot-source' });
+        add(svg, 'circle', { cx: C.x, cy: C.y, r: 4.5, class: 'dot-base' });
+        add(svg, 'circle', { cx: VT.x, cy: VT.y, r: 5, class: 'dot-terminal' });
+        add(svg, 'text', { x: C.x + 7, y: C.y + 18, class: 'label' }, P.C12 === P.Vg ? 'v_g' : 'v_g + Z_g i_L');
+        add(svg, 'text', { x: VS.x + 7, y: VS.y - 8, class: 'label' }, 'v_s');
+        add(svg, 'text', { x: VT.x + 7, y: VT.y + 17, class: 'label' }, 'v_t');
+      }
+
+      function renderPlot(svg, deg, applyLimit) {
+        svg.replaceChildren();
+        const W = 330, H = 330, m = { l: 50, r: 16, t: 20, b: 42 }, xmin = -180, xmax = 180;
+        const vals = [], uncVals = [];
+        for (let d = -180; d <= 180; d += 1) { const st = stateAt(d, applyLimit); vals.push([d, mag(st.vt)]); uncVals.push([d, mag(st.vtUnc)]); }
+        // Both panels share one y-range (the unlimited curve spans it) so they compare directly.
+        const all = [...vals, ...uncVals].map(p => p[1]), ymin = Math.floor((Math.min(...all) - 0.03) * 20) / 20, ymax = Math.ceil((Math.max(...all) + 0.03) * 20) / 20;
+        const x = v => m.l + (v - xmin) / (xmax - xmin) * (W - m.l - m.r), y = v => H - m.b - (v - ymin) / (ymax - ymin) * (H - m.t - m.b);
+        [-180, -90, 0, 90, 180].forEach(v => { add(svg, 'line', { x1: x(v), y1: m.t, x2: x(v), y2: H - m.b, class: 'axis' }); add(svg, 'text', { x: x(v), y: H - 19, 'text-anchor': 'middle', class: 'tick' }, v + '°'); });
+        const yt = niceTicks(ymin, ymax); yt.t.forEach(v => { add(svg, 'line', { x1: m.l, y1: y(v), x2: W - m.r, y2: y(v), class: 'axis' }); add(svg, 'text', { x: m.l - 8, y: y(v) + 3, 'text-anchor': 'end', class: 'tick' }, +v.toFixed(4)); });
+        add(svg, 'rect', { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: 'none', stroke: css('--border') });
+        const path = a => 'M' + a.map(p => x(p[0]).toFixed(2) + ',' + y(p[1]).toFixed(2)).join('L');
+        if (applyLimit) add(svg, 'path', { d: path(uncVals), class: 'curve-unc' });
+        add(svg, 'path', { d: path(vals), class: 'curve' });
+        findPeaks(applyLimit).forEach(d => { const st = stateAt(d, applyLimit), py = y(mag(st.vt)); add(svg, 'line', { x1: x(d), y1: py, x2: x(d), y2: H - m.b, class: 'peak-line' }); add(svg, 'circle', { cx: x(d), cy: py, r: 4.5, class: 'peak-dot' }); add(svg, 'text', { x: x(d), y: py - 9, 'text-anchor': 'middle', class: 'small-label' }, `${Math.abs(d) < 0.05 ? '0' : (d > 0 ? '+' : '') + d.toFixed(1)}°, ${mag(st.vt).toFixed(3)}`); });
+        const cur = stateAt(deg, applyLimit), cx = x(deg), cy = y(mag(cur.vt));
+        add(svg, 'line', { x1: cx, y1: m.t, x2: cx, y2: H - m.b, class: 'current-line' });
+        add(svg, 'circle', { cx, cy, r: 6, class: 'dot-terminal', stroke: css('--panel'), 'stroke-width': 2 });
+        add(svg, 'text', { x: (m.l + W - m.r) / 2, y: H - 3, 'text-anchor': 'middle', class: 'label' }, 'δ (deg)');
+        add(svg, 'text', { x: 14, y: (m.t + H - m.b) / 2, transform: `rotate(-90 14 ${(m.t + H - m.b) / 2})`, 'text-anchor': 'middle', class: 'label' }, '|v_t| (pu)');
+      }
+
+      function makeMarkers(svg, id, names) {
+        const defs = add(svg, 'defs');
+        names.forEach(name => { const color = css(`--${name}`), m = add(defs, 'marker', { id: `${id}-${name}`, viewBox: '0 0 10 10', refX: 8.2, refY: 5, markerWidth: 3.8, markerHeight: 3.8, orient: 'auto-start-reverse' }); add(m, 'path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: color }); });
+      }
+
+      function renderGFLPhasor(svg, s) {
+        svg.replaceChildren(); makeMarkers(svg, 'gfl', ['blue', 'purple']);
+        // Zoomed view around v_g, scaled so the largest possible GFL drop spans ~105 px.
+        const reach = Math.max(mag(P.ZgL) * kL * Math.max(P.ImaxL, P.IdL), 1e-4), S = 105 / reach;
+        const map = { x: x => 180 + S * (x - P.vg.re), y: y => 165 - S * (y - P.vg.im) };
+        const gstep = niceTicks(0, reach * 1.4).step;
+        for (let i = -3; i <= 3; i++) { const t = i * gstep, X = map.x(P.vg.re + t), Y = map.y(t); if (X < 20 || X > 340 || Y < 20 || Y > 310) continue; add(svg, 'line', { x1: X, y1: 20, x2: X, y2: 310, class: 'axis' }); add(svg, 'line', { x1: 20, y1: Y, x2: 340, y2: Y, class: 'axis' }); add(svg, 'text', { x: X, y: 322, 'text-anchor': 'middle', class: 'tick' }, +(P.vg.re + t).toFixed(3)); if (i) add(svg, 'text', { x: 16, y: Y + 3, class: 'tick' }, +t.toFixed(3)); }
+        add(svg, 'circle', { cx: map.x(P.vg.re), cy: map.y(P.vg.im), r: S * mag(P.ZgL) * kL * P.IdL, class: 'gfl-circle' });
+        const pt = v => ({ x: map.x(v.re), y: map.y(v.im) }), VG = pt(P.vg), VT = pt(s.vt);
+        add(svg, 'line', { x1: 20, y1: VG.y, x2: VG.x, y2: VG.y, class: 'radius', 'marker-end': 'url(#gfl-blue)' });
+        arrow(svg, VG, VT, 'gfl-contribution', 'gfl-purple');
+        const ray = r => add(svg, 'line', { x1: VG.x, y1: VG.y, x2: VG.x + r * Math.cos(s.theta * Math.PI / 180), y2: VG.y - r * Math.sin(s.theta * Math.PI / 180), class: 'frt-boundary' }); ray(60);
+        add(svg, 'line', { x1: VG.x, y1: VG.y, x2: VG.x + 60, y2: VG.y, class: 'axis' }); angleArc(svg, VG, s.theta, 28, 'θ', 'theta-arc');
+        add(svg, 'circle', { cx: VG.x, cy: VG.y, r: 4.5, class: 'dot-base' });
+        add(svg, 'circle', { cx: VT.x, cy: VT.y, r: 5, class: 'dot-terminal' });
+        add(svg, 'text', { x: VG.x + 7, y: VG.y + 18, class: 'label' }, 'v_g');
+        add(svg, 'text', { x: VT.x + 7, y: VT.y - 8, class: 'label' }, 'v_7');
+      }
+
+      function renderGFLPlot(svg, theta) {
+        svg.replaceChildren();
+        const W = 330, H = 330, m = { l: 50, r: 16, t: 20, b: 42 };
+        const a = [], b = []; for (let t = -180; t <= 180; t++) { a.push([t, mag(gflState(t, true).vt)]); b.push([t, mag(gflState(t, false).vt)]); }
+        const all = [...a, ...b].map(p => p[1]), lo = Math.min(P.Vth - 0.02, Math.floor((Math.min(...all) - 0.01) * 50) / 50), hi = Math.ceil((Math.max(...all) + 0.01) * 50) / 50;
+        const x = v => m.l + (v + 180) / 360 * (W - m.l - m.r), y = v => H - m.b - (v - lo) / (hi - lo) * (H - m.t - m.b);
+        [-180, -90, 0, 90, 180].forEach(v => { add(svg, 'line', { x1: x(v), y1: m.t, x2: x(v), y2: H - m.b, class: 'axis' }); add(svg, 'text', { x: x(v), y: H - 19, 'text-anchor': 'middle', class: 'tick' }, v + '°'); });
+        const yt = niceTicks(lo, hi); yt.t.forEach(v => { add(svg, 'line', { x1: m.l, y1: y(v), x2: W - m.r, y2: y(v), class: 'axis' }); add(svg, 'text', { x: m.l - 8, y: y(v) + 3, 'text-anchor': 'end', class: 'tick' }, +v.toFixed(4)); });
+        add(svg, 'line', { x1: m.l, y1: y(P.Vth), x2: W - m.r, y2: y(P.Vth), class: 'frt-boundary' }); add(svg, 'text', { x: W - m.r - 4, y: y(P.Vth) - 5, 'text-anchor': 'end', class: 'small-label' }, `V_th = ${P.Vth}`);
+        const path = arr => 'M' + arr.map(p => x(p[0]).toFixed(2) + ',' + y(p[1]).toFixed(2)).join('L');
+        add(svg, 'path', { d: path(b), class: 'curve-unc' });
+        add(svg, 'path', { d: path(a), class: 'curve' });
+        const s = gflState(theta), cx = x(theta), cy = y(mag(s.vt));
+        add(svg, 'line', { x1: cx, y1: m.t, x2: cx, y2: H - m.b, class: 'current-line' }); add(svg, 'circle', { cx, cy, r: 6, class: 'dot-terminal', stroke: css('--panel'), 'stroke-width': 2 });
+        add(svg, 'text', { x: (m.l + W - m.r) / 2, y: H - 3, 'text-anchor': 'middle', class: 'label' }, 'θ (deg)');
+        add(svg, 'text', { x: 14, y: (m.t + H - m.b) / 2, transform: `rotate(-90 14 ${(m.t + H - m.b) / 2})`, 'text-anchor': 'middle', class: 'label' }, '|v_7| (pu)');
+      }
+
+      function renderCoupledPhasor(svg, s) {
+        svg.replaceChildren(); makeMarkers(svg, 'coupled', ['blue', 'purple', 'red', 'green']);
+        const map = { x: x => 118 + 105 * x, y: y => 165 - 105 * y };
+        drawAxes(svg, map, [0, 0.5, 1, 1.5, 2], [-1, -0.5, 0, 0.5, 1]);
+        add(svg, 'circle', { cx: map.x(0), cy: map.y(0), r: 105 * P.Vs, class: 'source-circle' });
+        add(svg, 'circle', { cx: map.x(P.vg.re), cy: map.y(P.vg.im), r: 105 * P.ZgAbs * kL * P.IdL, class: 'gfl-circle' });
+        add(svg, 'circle', { cx: map.x(s.c.re), cy: map.y(s.c.im), r: 105 * P.ZgAbs * P.IM, class: 'limit-circle' });
+        const pt = v => ({ x: map.x(v.re), y: map.y(v.im) }), O = pt({ re: 0, im: 0 }), VG = pt(P.vg), C = pt(s.c), VS = pt(s.vs), VT = pt(s.vt);
+        arrow(svg, O, VS, 'radius', 'coupled-blue');
+        arrow(svg, VG, C, 'gfl-contribution', 'coupled-purple');
+        arrow(svg, C, VT, 'contribution', 'coupled-red');
+        arrow(svg, VT, VS, 'difference', 'coupled-green');
+        angleArc(svg, O, s.deg, 31, 'δ');
+        { const t = s.theta * Math.PI / 180; add(svg, 'line', { x1: VG.x, y1: VG.y, x2: VG.x + 45 * Math.cos(t), y2: VG.y - 45 * Math.sin(t), class: 'frt-boundary' }); angleArc(svg, VG, s.theta, 22, 'θ', 'theta-arc'); }
+        add(svg, 'circle', { cx: C.x, cy: C.y, r: 4.5, fill: css('--purple') }); add(svg, 'circle', { cx: VS.x, cy: VS.y, r: 4.5, class: 'dot-source' }); add(svg, 'circle', { cx: VT.x, cy: VT.y, r: 5, class: 'dot-terminal' });
+        add(svg, 'text', { x: VG.x + 7, y: VG.y + 18, class: 'label' }, 'v_g'); add(svg, 'text', { x: VS.x + 7, y: VS.y - 8, class: 'label' }, 'v_s'); add(svg, 'text', { x: VT.x + 7, y: VT.y + 17, class: 'label' }, 'v_t');
+      }
+
+      function renderCoupledMap(svg, delta, theta) {
+        svg.replaceChildren();
+        const W = 330, H = 330, m = { l: 48, r: 46, t: 24, b: 42 }, pw = W - m.l - m.r, ph = H - m.t - m.b, steps = 45, cellW = pw / steps, cellH = ph / steps;
+        const x = v => m.l + (v + 180) / 360 * pw, y = v => m.t + (180 - v) / 360 * ph;
+        if (!renderCoupledMap.vals) {
+          const vals = [];
+          for (let iy = 0; iy < steps; iy++)for (let ix = 0; ix < steps; ix++) {
+            const d = -180 + (ix + .5) * 360 / steps, t = 180 - (iy + .5) * 360 / steps, s = coupledState(d, t);
+            vals.push({ ix, iy, v: mag(s.vt), limited: s.limited, frt: s.frt, mode: (s.limited ? 2 : 0) + (s.frt ? 1 : 0) });
+          }
+          renderCoupledMap.vals = vals;
+        }
+        const vals = renderCoupledMap.vals;
+        const vmin = Math.min(...vals.map(d => d.v)), vmax = Math.max(...vals.map(d => d.v));
+        // Plotly Viridis (same colorscale as the |v| heatmaps in p261030_tierA_qss_map.ipynb).
+        const VIRIDIS = ['#440154', '#482878', '#3e4989', '#31688e', '#26828e', '#1f9e89', '#35b779', '#6ece58', '#b5de2b', '#fde725'];
+        const hex = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
+        const shade = q => { q = Math.max(0, Math.min(1, q)) * (VIRIDIS.length - 1); const i = Math.min(Math.floor(q), VIRIDIS.length - 2), t = q - i, a = hex(VIRIDIS[i]), b = hex(VIRIDIS[i + 1]); return `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * t)).join(',')})`; };
+        vals.forEach(d => { const q = (d.v - vmin) / Math.max(vmax - vmin, 1e-9); add(svg, 'rect', { x: m.l + d.ix * cellW, y: m.t + d.iy * cellH, width: cellW + .5, height: cellH + .5, fill: shade(q) }); });
+        const at = (ix, iy) => vals[iy * steps + ix];
+        let limitPath = '', frtPath = '';
+        const segment = (path, x1, y1, x2, y2) => path + `M ${x1} ${y1} L ${x2} ${y2} `;
+        for (let iy = 0; iy < steps; iy++)for (let ix = 0; ix < steps; ix++) {
+          const a = at(ix, iy), x0 = m.l + ix * cellW, y0 = m.t + iy * cellH;
+          if (ix < steps - 1) { const b = at(ix + 1, iy), xb = x0 + cellW; if (a.limited !== b.limited) limitPath = segment(limitPath, xb, y0, xb, y0 + cellH); if (a.frt !== b.frt) frtPath = segment(frtPath, xb, y0, xb, y0 + cellH); }
+          if (iy < steps - 1) { const b = at(ix, iy + 1), yb = y0 + cellH; if (a.limited !== b.limited) limitPath = segment(limitPath, x0, yb, x0 + cellW, yb); if (a.frt !== b.frt) frtPath = segment(frtPath, x0, yb, x0 + cellW, yb); }
+        }
+        [[limitPath, 'limit-boundary'], [frtPath, 'frt-boundary']].forEach(([d, cls]) => { if (!d) return; add(svg, 'path', { d, class: 'boundary-halo' }); add(svg, 'path', { d, class: cls + ' map-boundary' }); });
+        const modeNames = ['Normal', 'GFL FRT', 'GFM limit', 'Both'];
+        for (let mode = 0; mode < 4; mode++) {
+          const cells = vals.filter(d => d.mode === mode); if (!cells.length) continue;
+          const mx = cells.reduce((s, d) => s + d.ix, 0) / cells.length, my = cells.reduce((s, d) => s + d.iy, 0) / cells.length;
+          const best = cells.reduce((a, b) => (b.ix - mx) ** 2 + (b.iy - my) ** 2 < (a.ix - mx) ** 2 + (a.iy - my) ** 2 ? b : a);
+          add(svg, 'text', { x: m.l + (best.ix + .5) * cellW, y: m.t + (best.iy + .5) * cellH + 3, 'text-anchor': 'middle', class: 'mode-label' }, modeNames[mode]);
+        }
+        [-180, -90, 0, 90, 180].forEach(v => { add(svg, 'text', { x: x(v), y: H - 19, 'text-anchor': 'middle', class: 'tick' }, v + '°'); add(svg, 'text', { x: m.l - 7, y: y(v) + 3, 'text-anchor': 'end', class: 'tick' }, v + '°'); });
+        add(svg, 'rect', { x: m.l, y: m.t, width: pw, height: ph, fill: 'none', stroke: css('--border') });
+        add(svg, 'line', { x1: m.l, y1: 11, x2: m.l + 24, y2: 11, class: 'limit-boundary map-boundary' }); add(svg, 'text', { x: m.l + 30, y: 16, class: 'label' }, 'GFM limit');
+        add(svg, 'line', { x1: m.l + 120, y1: 11, x2: m.l + 144, y2: 11, class: 'frt-boundary map-boundary' }); add(svg, 'text', { x: m.l + 150, y: 16, class: 'label' }, 'GFL FRT');
+        const cx = x(delta), cy = y(theta); add(svg, 'line', { x1: cx, y1: m.t, x2: cx, y2: m.t + ph, stroke: css('--text'), 'stroke-width': 1 }); add(svg, 'line', { x1: m.l, y1: cy, x2: m.l + pw, y2: cy, stroke: css('--text'), 'stroke-width': 1 }); add(svg, 'circle', { cx, cy, r: 5, fill: 'none', stroke: css('--text'), 'stroke-width': 2 });
+        add(svg, 'text', { x: m.l + pw / 2, y: H - 3, 'text-anchor': 'middle', class: 'label' }, 'δ (deg)'); add(svg, 'text', { x: 13, y: m.t + ph / 2, transform: `rotate(-90 13 ${m.t + ph / 2})`, 'text-anchor': 'middle', class: 'label' }, 'θ (deg)');
+        // colour bar
+        const gid = `cbar-${Math.random().toString(36).slice(2)}`, grad = add(add(svg, 'defs'), 'linearGradient', { id: gid, x1: 0, y1: 1, x2: 0, y2: 0 }); VIRIDIS.forEach((c, i) => add(grad, 'stop', { offset: i / (VIRIDIS.length - 1), 'stop-color': c }));
+        const bx = m.l + pw + 6; add(svg, 'rect', { x: bx, y: m.t, width: 9, height: ph, fill: `url(#${gid})`, stroke: css('--border') });
+        add(svg, 'text', { x: bx + 12, y: m.t + 9, class: 'tick' }, vmax.toFixed(2)); add(svg, 'text', { x: bx + 12, y: m.t + ph, class: 'tick' }, vmin.toFixed(2)); add(svg, 'text', { x: bx + 12, y: m.t + ph / 2 + 4, class: 'tick' }, '|v_t|');
+      }
+
+      // ---------- Energy dissipation rate (user definition) ----------
+      // h = P_ref − P_GFM (GFM base, GFM terminal), g = v_q (PLL frame, bus 7);
+      // V = U(δ,θ) + K_i,PLL ξ²/2 with dU = −h dδ − g dθ  ⇒  V̇ = −K_p,P h² − K_p,PLL g²
+      // (exact when ∂h/∂θ = ∂g/∂δ; the mismatch is reported under the figure).
+      const D2R = Math.PI / 180, NE = 40, eNodes = [...Array(NE)].map((_, i) => -180 + (i + .5) * 360 / NE);
+      const VIR = ['#440154', '#482878', '#3e4989', '#31688e', '#26828e', '#1f9e89', '#35b779', '#6ece58', '#b5de2b', '#fde725'];
+      const viridisAt = q => { q = Math.max(0, Math.min(1, q)) * (VIR.length - 1); const i = Math.min(Math.floor(q), VIR.length - 2), t = q - i, h = c => [1, 3, 5].map(k => parseInt(c.slice(k, k + 2), 16)), a = h(VIR[i]), b = h(VIR[i + 1]); return 'rgb(' + a.map((v, k) => Math.round(v + (b[k] - v) * t)).join(',') + ')'; };
+      const wrapDeg = a => ((a + 180) % 360 + 360) % 360 - 180;
+      const hgAt = (d, t) => { const s = coupledState(d, t); return { h: P.Pref - (s.v9.re * s.iM.re + s.v9.im * s.iM.im) / kM, g: cmul(polar(-t), s.v7).im }; };
+      const edotOf = v => -P.KpP * v.h * v.h - P.KpPll * v.g * v.g;
+      const findEquilibria = (H, G) => {
+        const cand = []; for (let i = 0; i < NE; i++)for (let j = 0; j < NE; j++)cand.push([H[i][j] ** 2 + G[i][j] ** 2, i, j]);
+        cand.sort((a, b) => a[0] - b[0]);
+        const found = [];
+        for (const [, i, j] of cand.slice(0, 10)) {
+          let d = eNodes[i], t = eNodes[j], ok = false;
+          for (let k = 0; k < 40; k++) {
+            const v = hgAt(d, t); if (Math.abs(v.h) < 1e-7 && Math.abs(v.g) < 1e-7) { ok = true; break; }
+            const e = 1e-3, vd = hgAt(d + e, t), vt = hgAt(d, t + e), a = (vd.h - v.h) / e, b = (vt.h - v.h) / e, c = (vd.g - v.g) / e, q = (vt.g - v.g) / e, det = a * q - b * c;
+            if (!isFinite(det) || Math.abs(det) < 1e-14) break;
+            let sd = -(q * v.h - b * v.g) / det, st = -(-c * v.h + a * v.g) / det; const n = Math.hypot(sd, st); if (n > 15) { sd *= 15 / n; st *= 15 / n; }
+            d = wrapDeg(d + sd); t = wrapDeg(t + st);
+          }
+          if (ok && !found.some(p => Math.hypot(wrapDeg(p.d - d), wrapDeg(p.t - t)) < 0.5)) {
+            const e = 1e-2, v = hgAt(d, t), vd = hgAt(d + e, t), vt = hgAt(d, t + e);
+            found.push({ d, t, minimum: (vd.h - v.h) / e < 0 && (vt.g - v.g) / e < 0 });   // ∂²U/∂δ² > 0 and ∂²U/∂θ² > 0
+          }
+        }
+        return found;
+      };
+      const computeE = () => {
+        if (renderEMap.data) return renderEMap.data;
+        const dA = 360 / NE * D2R, H = [], G = [];
+        for (let i = 0; i < NE; i++) { H.push([]); G.push([]); for (let j = 0; j < NE; j++) { const v = hgAt(eNodes[i], eNodes[j]); H[i].push(v.h); G[i].push(v.g); } }
+        let worst = 0, scale = 1e-12;
+        for (let i = 0; i < NE; i++)for (let j = 0; j < NE; j++) {
+          const hT = (H[i][(j + 1) % NE] - H[i][(j - 1 + NE) % NE]) / (2 * dA), gD = (G[(i + 1) % NE][j] - G[(i - 1 + NE) % NE][j]) / (2 * dA);
+          worst = Math.max(worst, Math.abs(hT - gD)); scale = Math.max(scale, Math.abs(hT), Math.abs(gD));
+        }
+        const eqs = findEquilibria(H, G), ref = eqs.find(e => e.minimum) || eqs[0];
+        const data = { H, G, eqs, ref, mismatch: worst / scale };
+        if (!ref) return renderEMap.data = data;
+        // Path-defined U (δ along θ = θ*, then θ at fixed δ) and the true V̇ along trajectories:
+        //   V̇ = U_δ·K_p,P·h − K_p,PLL·g²,  U_δ = −h(δ,θ*) − ∂/∂δ ∫_{θ*}^{θ} g dβ   (ξ terms cancel).
+        const lc = []; let acc = 0, prev = null;
+        for (let a = -180; a <= 180; a++) { const h = hgAt(a, ref.t).h; if (prev !== null) acc += (prev + h) / 2 * D2R; lc.push(acc); prev = h; }
+        const Cd = a => { const u = Math.max(0, Math.min(359.999, a + 180)), k = Math.floor(u), r = u - k; return lc[k] + (lc[k + 1] - lc[k]) * r; };
+        const Ud = d => -(Cd(d) - Cd(ref.d));
+        const Gi = [], hStar = [];
+        for (let i = 0; i < NE; i++) {
+          const v = hgAt(eNodes[i], ref.t); hStar.push(v.h);
+          const pts = eNodes.map((t, j) => [t, G[i][j]]); pts.push([ref.t, v.g]); pts.sort((a, b) => a[0] - b[0]);
+          const cum = [0]; for (let k = 1; k < pts.length; k++)cum.push(cum[k - 1] + (pts[k - 1][1] + pts[k][1]) / 2 * (pts[k][0] - pts[k - 1][0]) * D2R);
+          const c0 = cum[pts.findIndex(p => p[0] === ref.t)], at = new Map(pts.map((p, k) => [p[0], cum[k]]));
+          Gi.push(eNodes.map(t => at.get(t) - c0));
+        }
+        const U = [], T = [], L = [];
+        for (let i = 0; i < NE; i++) {
+          U.push([]); T.push([]); L.push([]);
+          for (let j = 0; j < NE; j++) {
+            const Udel = -hStar[i] - (Gi[(i + 1) % NE][j] - Gi[(i - 1 + NE) % NE][j]) / (2 * dA);
+            const e = Udel * P.KpP * H[i][j] - P.KpPll * G[i][j] ** 2;
+            U[i].push(Ud(eNodes[i]) - Gi[i][j]); T[i].push(e); L[i].push(Math.log10(Math.max(Math.abs(e), 1e-12)));
+          }
+        }
+        const tol = 1e-6 * Math.max(...T.flat().map(Math.abs));
+        // Largest sublevel set {U < c} around the reference equilibrium lying in {V̇ ≤ 0} and
+        // containing no other equilibrium (flood fill on the grid, no wrap in δ).
+        const near = (d, t) => [Math.round((d + 180) / 360 * NE - .5), Math.round((t + 180) / 360 * NE - .5)].map(k => Math.max(0, Math.min(NE - 1, k)));
+        let cstar = Infinity, limiter = 'none';
+        for (let i = 0; i < NE; i++)for (let j = 0; j < NE; j++) if (T[i][j] > tol && U[i][j] < cstar) { cstar = U[i][j]; limiter = 'the V̇ > 0 area at (' + eNodes[i].toFixed(1) + '°, ' + eNodes[j].toFixed(1) + '°)'; }
+        eqs.forEach(e => { if (e === ref) return; const [i, j] = near(e.d, e.t); if (U[i][j] < cstar) { cstar = U[i][j]; limiter = 'the equilibrium (' + e.d.toFixed(1) + '°, ' + e.t.toFixed(1) + '°)'; } });
+        const [i0, j0] = near(ref.d, ref.t), omega = [...Array(NE)].map(() => Array(NE).fill(0));
+        if (U[i0][j0] < cstar) {
+          const st = [[i0, j0]]; omega[i0][j0] = 1;
+          while (st.length) { const [i, j] = st.pop(); for (const [a, b] of [[i + 1, j], [i - 1, j], [i, (j + 1) % NE], [i, (j - 1 + NE) % NE]]) { if (a < 0 || a >= NE || omega[a][b] || !(U[a][b] < cstar)) continue; omega[a][b] = 1; st.push([a, b]); } }
+        }
+        const flat = L.flat(), lmax = Math.max(...flat), lmin = Math.max(Math.min(...flat), lmax - 6);
+        const nonpos = T.flat().filter(v => v <= tol).length / (NE * NE), omegaFrac = omega.flat().reduce((a, b) => a + b, 0) / (NE * NE);
+        return renderEMap.data = { ...data, U, T, L, lmin, lmax, tol, omega, cstar, limiter, nonpos, omegaFrac };
+      };
+      const EdotAt = (d, t) => { // bilinear interpolation of the true V̇ grid
+        const data = computeE(); if (!data.T) return NaN;
+        const u = (d + 180) / 360 * NE - .5, v = (t + 180) / 360 * NE - .5, i = Math.max(0, Math.min(NE - 2, Math.floor(u))), j = Math.max(0, Math.min(NE - 2, Math.floor(v))), a = Math.max(0, Math.min(1, u - i)), b = Math.max(0, Math.min(1, v - j)), T = data.T;
+        return (1 - a) * (1 - b) * T[i][j] + a * (1 - b) * T[i + 1][j] + (1 - a) * b * T[i][j + 1] + a * b * T[i + 1][j + 1];
+      };
+      // Marching-squares segments of field F at a given level, in pixel coordinates.
+      const contour = (F, level, x, y) => {
+        let path = '';
+        for (let i = 0; i < NE - 1; i++)for (let j = 0; j < NE - 1; j++) {
+          const c = [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]], v = c.map(([a, b]) => F[a][b]), pts = [];
+          for (let k = 0; k < 4; k++) { const k2 = (k + 1) % 4, a = v[k], b = v[k2]; if ((a < level) !== (b < level)) { const r = (level - a) / (b - a), [i1, j1] = c[k], [i2, j2] = c[k2]; pts.push([x(eNodes[i1] + (eNodes[i2] - eNodes[i1]) * r), y(eNodes[j1] + (eNodes[j2] - eNodes[j1]) * r)]); } }
+          for (let k = 0; k + 1 < pts.length; k += 2) path += 'M' + pts[k][0].toFixed(1) + ' ' + pts[k][1].toFixed(1) + 'L' + pts[k + 1][0].toFixed(1) + ' ' + pts[k + 1][1].toFixed(1);
+        }
+        return path;
+      };
+      function renderEMap(svg, delta, theta) {
+        svg.replaceChildren();
+        const data = computeE(), W = 330, Ht = 330, m = { l: 48, r: 46, t: 24, b: 42 }, pw = W - m.l - m.r, ph = Ht - m.t - m.b, cw = pw / NE, ch = ph / NE;
+        const x = v => m.l + (v + 180) / 360 * pw, y = v => m.t + (180 - v) / 360 * ph;
+        if (data.T) {
+          const { T, L, lmin, lmax, tol, omega } = data, span = Math.max(lmax - lmin, 1e-9);
+          for (let i = 0; i < NE; i++)for (let j = 0; j < NE; j++) {
+            const X = x(eNodes[i]) - cw / 2, Y = y(eNodes[j]) - ch / 2;
+            add(svg, 'rect', { x: X, y: Y, width: cw + .5, height: ch + .5, fill: viridisAt((L[i][j] - lmin) / span) });
+            if (T[i][j] > tol) add(svg, 'rect', { x: X, y: Y, width: cw + .5, height: ch + .5, fill: '#d7263d', 'fill-opacity': .62 });
+          }
+          const zero = contour(T.map(r => r.map(v => v - tol)), 0, x, y);
+          if (zero) add(svg, 'path', { d: zero, fill: 'none', stroke: '#000', 'stroke-width': 1.4 });
+          const om = contour(omega, 0.5, x, y);
+          if (om) { add(svg, 'path', { d: om, fill: 'none', stroke: '#000', 'stroke-width': 5, 'stroke-linejoin': 'round' }); add(svg, 'path', { d: om, fill: 'none', stroke: '#fff', 'stroke-width': 2.6, 'stroke-linejoin': 'round' }); }
+        }
+        const hz = contour(data.H, 0, x, y), gz = contour(data.G, 0, x, y);
+        if (hz) add(svg, 'path', { d: hz, fill: 'none', stroke: '#fff', 'stroke-width': 1, 'stroke-opacity': .8, 'stroke-dasharray': '2 3' });
+        if (gz) add(svg, 'path', { d: gz, fill: 'none', stroke: '#fff', 'stroke-width': 1, 'stroke-opacity': .8, 'stroke-dasharray': '7 3' });
+        data.eqs.forEach(e => { add(svg, 'circle', { cx: x(e.d), cy: y(e.t), r: 6, fill: e.minimum ? '#fff' : 'none', stroke: '#000', 'stroke-width': 1.8 }); });
+        [-180, -90, 0, 90, 180].forEach(v => { add(svg, 'text', { x: x(v), y: Ht - 19, 'text-anchor': 'middle', class: 'tick' }, v + '°'); add(svg, 'text', { x: m.l - 7, y: y(v) + 3, 'text-anchor': 'end', class: 'tick' }, v + '°'); });
+        add(svg, 'rect', { x: m.l, y: m.t, width: pw, height: ph, fill: 'none', stroke: css('--border') });
+        const cx = x(delta), cy = y(theta); add(svg, 'line', { x1: cx, y1: m.t, x2: cx, y2: m.t + ph, stroke: css('--text'), 'stroke-width': 1 }); add(svg, 'line', { x1: m.l, y1: cy, x2: m.l + pw, y2: cy, stroke: css('--text'), 'stroke-width': 1 }); add(svg, 'circle', { cx, cy, r: 5, fill: 'none', stroke: css('--text'), 'stroke-width': 2 });
+        add(svg, 'text', { x: m.l + pw / 2, y: Ht - 3, 'text-anchor': 'middle', class: 'label' }, 'δ (deg)'); add(svg, 'text', { x: 13, y: m.t + ph / 2, transform: 'rotate(-90 13 ' + (m.t + ph / 2) + ')', 'text-anchor': 'middle', class: 'label' }, 'θ (deg)');
+        add(svg, 'rect', { x: m.l, y: 5, width: 16, height: 12, fill: '#d7263d', 'fill-opacity': .62 }); add(svg, 'text', { x: m.l + 21, y: 16, class: 'label' }, 'V̇ > 0');
+        add(svg, 'line', { x1: m.l + 90, y1: 11, x2: m.l + 112, y2: 11, stroke: '#000', 'stroke-width': 5 }); add(svg, 'line', { x1: m.l + 90, y1: 11, x2: m.l + 112, y2: 11, stroke: '#fff', 'stroke-width': 2.6 }); add(svg, 'text', { x: m.l + 117, y: 16, class: 'label' }, 'ROA');
+        if (data.T) {
+          const gid = 'ebar-' + Math.random().toString(36).slice(2), grad = add(add(svg, 'defs'), 'linearGradient', { id: gid, x1: 0, y1: 1, x2: 0, y2: 0 }); VIR.forEach((c, i) => add(grad, 'stop', { offset: i / (VIR.length - 1), 'stop-color': c }));
+          const bx = m.l + pw + 6; add(svg, 'rect', { x: bx, y: m.t, width: 9, height: ph, fill: 'url(#' + gid + ')', stroke: css('--border') });
+          add(svg, 'text', { x: bx + 12, y: m.t + 9, class: 'tick' }, '1e' + data.lmax.toFixed(0)); add(svg, 'text', { x: bx + 12, y: m.t + ph, class: 'tick' }, '1e' + data.lmin.toFixed(0)); add(svg, 'text', { x: bx + 12, y: m.t + ph / 2 + 4, class: 'tick' }, '|V̇|');
+        }
+      }
+      // Generated power S = v·conj(i) at the converter terminal; shown in own-rating pu and MW/Mvar.
+      const showPQ = (panel, tag, v, i, k, S) => {
+        const p = (v.re * i.re + v.im * i.im) / k, q = (v.im * i.re - v.re * i.im) / k;
+        $(`.pq-P${tag}`, panel).textContent = `${p.toFixed(3)} pu · ${(p * S).toFixed(2)} MW`; $(`.pq-Q${tag}`, panel).textContent = `${q.toFixed(3)} pu · ${(q * S).toFixed(2)} Mvar`;
+      };
+      // q-axis voltage seen by the PLL: v_dq = e^{-j theta} v_7 (zero when the PLL is locked).
+      const showVq = (panel, theta, v7) => { const vq = cmul(polar(-theta), v7).im; $('.pll-vq', panel).textContent = `${vq.toFixed(3)} pu`; };
+      const updaters = [];
+      function setup(panel, applyLimit, id) {
+        const slider = $('.slider', panel), out = $('.delta-value', panel), ph = $('.phasor', panel), plot = $('.plot', panel), play = $('.play', panel);
+        ph.dataset.id = id;
+        let timer = null;
+        function update() { const d = Number(slider.value), s = stateAt(d, applyLimit); out.textContent = d + '°'; $('.iM', panel).textContent = s.iMag.toFixed(3) + ' pu'; $('.zgim', panel).textContent = mag(s.contrib).toFixed(3) + ' pu'; $('.vtmag', panel).textContent = mag(s.vt).toFixed(3) + ' pu'; if (applyLimit) { const badge = $('.state', panel); badge.textContent = s.limited ? 'Current-limited' : 'Not currently limited'; badge.className = 'badge state ' + (s.limited ? 'limited' : 'normal'); } showPQ(panel, 'M', s.v9, s.iM, kM, P.Sgfm); renderPhasor(ph, s, applyLimit); renderPlot(plot, d, applyLimit); }
+        slider.addEventListener('input', update);
+        play.addEventListener('click', () => { if (timer) { clearInterval(timer); timer = null; play.textContent = '▶ Play'; return; } play.textContent = '⏸ Pause'; timer = setInterval(() => { let v = Number(slider.value) + 2; if (v > 180) v = -180; slider.value = v; update(); }, 40); });
+        update(); updaters.push(update);
+      }
+      setup(document.getElementById('panel-limited'), true, 'l');
+      (() => {
+        const panel = document.getElementById('panel-gfl-smib'), slider = $('.theta-slider', panel), out = $('.theta-value', panel), phasor = $('.gfl-phasor', panel), plot = $('.gfl-plot', panel);
+        const update = () => { const theta = Number(slider.value), s = gflState(theta); out.textContent = (theta < 0 ? '−' + Math.abs(theta) : theta) + '°'; $('.gfl-id', panel).textContent = s.id.toFixed(3) + ' pu'; $('.gfl-iq', panel).textContent = s.q.toFixed(3) + ' pu'; $('.gfl-vt', panel).textContent = mag(s.vt).toFixed(3) + ' pu'; const badge = $('.gfl-frt-state', panel); badge.textContent = s.frt ? 'GFL FRT active' : 'GFL normal'; badge.className = 'badge gfl-frt-state ' + (s.frt ? 'frt' : 'normal'); showPQ(panel, 'L', s.vt, s.iL, kL, P.Sgfl); showVq(panel, theta, s.vt); renderGFLPhasor(phasor, s); renderGFLPlot(plot, theta); };
+        slider.addEventListener('input', update); update(); updaters.push(update);
+      })();
+      (() => {
+        const panel = document.getElementById('panel-coupled'), dSlider = $('.coupled-delta', panel), tSlider = $('.coupled-theta', panel), dOut = $('.coupled-delta-value', panel), tOut = $('.coupled-theta-value', panel), phasor = $('.coupled-phasor', panel), map = $('.coupled-map', panel), emap = $('.energy-map', panel);
+        const fmt = v => (v < 0 ? '−' + Math.abs(v) : v) + '°';
+        const update = () => { const d = Number(dSlider.value), t = Number(tSlider.value), s = coupledState(d, t); dOut.textContent = fmt(d); tOut.textContent = fmt(t); $('.coupled-iM', panel).textContent = s.iMag.toFixed(3) + ' pu'; $('.coupled-iq', panel).textContent = s.q.toFixed(3) + ' pu'; $('.coupled-vt', panel).textContent = mag(s.vt).toFixed(3) + ' pu'; $('.coupled-v7', panel).textContent = mag(s.v7).toFixed(3) + ' pu'; const badge = $('.coupled-state', panel); if (s.limited && s.frt) { badge.textContent = 'Both active'; badge.className = 'badge coupled-state limited'; } else if (s.limited) { badge.textContent = 'GFM limit only'; badge.className = 'badge coupled-state limited'; } else if (s.frt) { badge.textContent = 'GFL FRT only'; badge.className = 'badge coupled-state frt'; } else { badge.textContent = 'Normal'; badge.className = 'badge coupled-state normal'; } showPQ(panel, 'M', s.v9, s.iM, kM, P.Sgfm); showPQ(panel, 'L', s.v7, s.iL, kL, P.Sgfl); showVq(panel, t, s.v7); renderCoupledPhasor(phasor, s); renderCoupledMap(map, d, t); renderEMap(emap, d, t); const hv = hgAt(d, t), ed = computeE(); $('.coupled-Edot', panel).textContent = EdotAt(d, t).toExponential(2);  };
+        dSlider.addEventListener('input', update); tSlider.addEventListener('input', update); update(); updaters.push(update);
+        // Click or drag on the |v_t| map to pick (delta, theta). Geometry matches renderCoupledMap.
+        const pickOn = svg => ev => {
+          const ctm = svg.getScreenCTM(); if (!ctm) return;
+          const p = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(ctm.inverse());
+          const l = 48, t = 24, pw = 330 - 48 - 46, ph = 330 - 24 - 42;
+          if (p.x < l - 6 || p.x > l + pw + 6 || p.y < t - 6 || p.y > t + ph + 6) return;
+          const clamp = v => Math.max(-180, Math.min(180, Math.round(v)));
+          dSlider.value = clamp(-180 + (p.x - l) / pw * 360); tSlider.value = clamp(180 - (p.y - t) / ph * 360); update();
+        };
+        [map, emap].forEach(svg => {
+          const pick = pickOn(svg); let dragging = false;
+          svg.addEventListener('pointerdown', ev => { dragging = true; try { svg.setPointerCapture(ev.pointerId); } catch (e) { } pick(ev); });
+          svg.addEventListener('pointermove', ev => { if (dragging) pick(ev); });
+          ['pointerup', 'pointercancel'].forEach(n => svg.addEventListener(n, () => { dragging = false; }));
+        });
+      })();
+
+      // ---------- Tabs ----------
+      const tabs = [...document.querySelectorAll('.tabs button[data-tab]')];
+      const showTab = id => { tabs.forEach(b => { const on = b.dataset.tab === id; b.setAttribute('aria-selected', on); document.getElementById(b.dataset.tab).classList.toggle('active', on); }); try { localStorage.setItem('gfm-tab', id); } catch (e) { } };
+      tabs.forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+      let firstTab = tabs[0].dataset.tab; try { const saved = localStorage.getItem('gfm-tab'); if (saved && document.getElementById(saved)) firstTab = saved; } catch (e) { }
+      showTab(firstTab);
+
+      // ---------- Light / dark switch ----------
+      const themeBtn = $('.theme-toggle');
+      const isDark = () => { const t = document.documentElement.dataset.theme; return t ? t === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches; };
+      const labelTheme = () => { themeBtn.textContent = isDark() ? '☀ Light mode' : '☾ Dark mode'; };
+      themeBtn.addEventListener('click', () => {
+        const next = isDark() ? 'light' : 'dark';
+        document.documentElement.dataset.theme = next;
+        try { localStorage.setItem('gfm-theme', next); } catch (e) { }
+        labelTheme(); updaters.forEach(u => u());   // SVGs read the colour tokens when drawn
+      });
+      labelTheme();
+
+      // ---------- Parameter form ----------
+      const SPEC = [
+        ['Network (system base)', [['Sbase', 'S<sub>base</sub> (MVA)', 1], ['Vg', '|v<sub>g</sub>|'], ['Rg', 'R<sub>g</sub>'], ['Xg', 'X<sub>g</sub>'], ['R78', 'R<sub>78</sub>'], ['X78', 'X<sub>78</sub>'], ['R89', 'R<sub>89</sub>'], ['X89', 'X<sub>89</sub>'], ['C12', 'v<sub>g</sub>+Z<sub>g</sub>i<sub>L</sub> (tabs 1–2)']]],
+        ['GFM (own base)', [['Sgfm', 'S<sub>GFM</sub> (MVA)', 1], ['Vs', 'V<sub>ref</sub>'], ['Rv', 'R<sub>v</sub>'], ['Lv', 'X<sub>v</sub> = ωL<sub>v</sub>'], ['ImaxM', 'I<sub>max</sub>', 1], ['Pref', 'P<sub>ref</sub>'], ['KpP', 'K<sub>p,P</sub>']]],
+        ['GFL (own base)', [['Sgfl', 'S<sub>GFL</sub> (MVA)', 1], ['IdL', 'i<sub>d,ref</sub>'], ['Id2', 'i<sub>d,FRT</sub> (Id2)'], ['K1', 'K<sub>1</sub>'], ['Vth', 'V<sub>th</sub>'], ['KpPll', 'K<sub>p,PLL</sub>'], ['ImaxL', 'I<sub>max</sub>', 1]]]
+      ];
+      const groups = $('.param-groups'), inputs = {};
+      SPEC.forEach(([title, fields]) => {
+        const g = document.createElement('div'); g.className = 'param-group'; g.innerHTML = `<h3>${title}</h3><div class="param-fields"></div>`;
+        fields.forEach(([key, label, positive]) => {
+          const l = document.createElement('label'); l.innerHTML = `<span>${label}</span>`;
+          const inp = document.createElement('input'); inp.type = 'number'; inp.step = 'any'; inp.value = +BENCH[key].toFixed(6); if (positive) inp.min = '0.000001';
+          inp.dataset.key = key; l.appendChild(inp); $('.param-fields', g).appendChild(l); inputs[key] = inp;
+        });
+        groups.appendChild(g);
+      });
+      const status = $('.param-status');
+      const PRESETS = { bench: { values: BENCH, name: 'benchmark' }, case1: { values: CASE1, name: 'case 1' } };
+      let preset = PRESETS.bench;                                // highlights/status are relative to this
+      const refresh = () => {
+        derive(); fillLabels(); updaters.forEach(f => f());
+        const n = Object.keys(inputs).filter(k => P[k] !== preset.values[k]).length;
+        status.textContent = n ? `${n} changed from ${preset.name}` : `${preset.name} values`;
+      };
+      let pending = null;
+      Object.values(inputs).forEach(inp => inp.addEventListener('input', () => {
+        const key = inp.dataset.key, v = parseFloat(inp.value);
+        const ok = Number.isFinite(v) && (!inp.min || v > 0) && !(key === 'Rv' && v === 0 && P.Lv === 0) && !(key === 'Lv' && v === 0 && P.Rv === 0);
+        inp.setCustomValidity(ok ? '' : 'invalid'); if (!ok) return;
+        P[key] = v; inp.classList.toggle('changed', v !== preset.values[key]);
+        clearTimeout(pending); pending = setTimeout(refresh, 200);
+      }));
+      document.querySelectorAll('.param-reset').forEach(btn => btn.addEventListener('click', () => {
+        preset = PRESETS[btn.dataset.preset];
+        Object.entries(inputs).forEach(([k, inp]) => { P[k] = preset.values[k]; inp.value = +preset.values[k].toFixed(6); inp.classList.remove('changed'); inp.setCustomValidity(''); });
+        clearTimeout(pending); refresh();
+      }));
+      fillLabels(); status.textContent = 'benchmark values';
+    })();
+  </script>
+</body>
+
+</html>
