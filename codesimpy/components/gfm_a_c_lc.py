@@ -8,6 +8,7 @@ from ..core import Device
 
 class GFM_A_C_LC(Device):
     """GFM · A: virtual admittance + current PI · C: circular limit on the current reference · LC: terminal capacitor in the device (voltage port)."""
+    rmsDynamicStateNames = ("delta",)  # differential in the RMS model (besides frame angles)
 
     def __init__(self, Vb: float, Sb: float, index: str) -> None:
         super().__init__(

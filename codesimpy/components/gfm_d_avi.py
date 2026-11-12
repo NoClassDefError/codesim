@@ -15,6 +15,7 @@ class _GFMDirectAVI(Device):
     2026-07-07, ``Phi(r) = r / tanh(r / Imax) - Imax``; 2 is its hard
     counterpart ``max(0, r - Imax)``.
     """
+    rmsDynamicStateNames = ("delta",)  # differential in the RMS model (besides frame angles)
 
     def __init__(self, Vb: float, Sb: float, index: str) -> None:
         super().__init__(

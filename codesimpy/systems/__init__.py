@@ -12,6 +12,7 @@ from .cigre4_gfm_a_c_lc import CIGRE4__GFM_A_C_LC__GFL_C_F_L, CIGRE4__GFM_A_C_LC
 from .cigre4_gfm_a_c_l import (CIGRE4__GFM_A_C_L, CIGRE4__GFM_A_C_L__GFL_C_F_L, CIGRE4__GFM_A_C_L__GFM_A_C_L,
                                 CIGRE4RX__GFM_A_C_L, CIGRE4RX__GFM_A_C_L__GFM_A_C_L)
 from .cigre4_gfm_d_s_lc import CIGRE4__GFM_D_S_LC__GFL_C_F_LC
+from .cigre4_gfm_d_l_l import CIGRE4__GFM_D_L_L__GFL_C_F_L
 from .ieee13 import IEEE13, IEEE13__GFM_D_N_LC__GFL_P_F_L
 from .parallel2_gfm_d_n_lc import Parallel2__GFM_D_N_LC
 from .cigre4_two_gfm import (CIGRE4__GFM_D_S_LC, CIGRE4__GFM_D_S_LC__GFM_D_S_LC, CIGRE4RX__GFM_D_H_LC,
@@ -30,6 +31,7 @@ __all__ = [
     "SMIB__GFL_C_F_L", "SMIB__GFL_C_F_LC", "SMIB__GFL_P_F_LC", "SMIB__SG",
     "Parallel2__GFM_D_N_LC",
     "CIGRE4__GFM_A_C_LC__GFL_C_F_L", "CIGRE4__GFM_A_C_LC__GFL_P_F_L", "CIGRE4__GFM_D_S_LC__GFL_C_F_LC",
+    "CIGRE4__GFM_D_L_L__GFL_C_F_L",
     "CIGRE14__GFM_A_C_LC__GFL_P_F_L", "CIGRE14__GFM_A_C_LC__GFL_C_F_L",
     "CIGRE4__GFM_D_S_LC__GFM_D_S_LC", "CIGRE4__GFM_D_S_LC",
     "CIGRE4RX__GFM_D_H_LC__GFM_D_H_LC", "CIGRE4RX__GFM_D_H_LC",

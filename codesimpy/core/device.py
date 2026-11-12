@@ -112,6 +112,40 @@ class Device(ABC):
     def getFInit(self) -> Any:
         """Return symbolic steady-state initialization residuals."""
 
+    # ------------------------------------------------------------------ RMS
+    #: Local state names (without the device index) that remain differential
+    #: in the RMS model besides the frame angles (e.g. ``("delta",)``).
+    rmsDynamicStateNames: tuple[str, ...] = ()
+
+    def getFrameAngleIndices(self) -> list[int]:
+        """Local states without an initialization residual (frame angles)."""
+        withResidual = set(self.getFInitStateIndices())
+        return [i for i in range(self.n) if i not in withResidual]
+
+    def getRMSDifferentialIndices(self) -> list[int]:
+        """Local states integrated in the RMS model: frame angles plus
+        ``rmsDynamicStateNames``. All other states are algebraic (``0 = f_i``)."""
+        local = [str(symbol)[: -len(self.index)] for symbol in self.x]
+        unknown = set(self.rmsDynamicStateNames) - set(local)
+        if unknown:
+            raise ValueError(f"{type(self).__name__}: unknown RMS dynamic states {sorted(unknown)}")
+        dynamic = {local.index(name) for name in self.rmsDynamicStateNames}
+        return sorted(set(self.getFrameAngleIndices()) | dynamic)
+
+    def getRMSEquationsSym(self) -> sp.Matrix:
+        """State equations in the global DQ frame rotating at 1 pu.
+
+        A device already works in its own dq frame, whose angle ``theta`` is a
+        frame-angle state. In the global DQ frame that angle is measured
+        relative to the DQ frame, so its derivative is ``w - 1``; every other
+        row is unchanged. The rows of the algebraic states are therefore
+        exactly the ``getFInit`` residuals.
+        """
+        equations = sp.Matrix(self.f).as_mutable()
+        for index in self.getFrameAngleIndices():
+            equations[index] = equations[index] - 1
+        return equations
+
     def getFInitStateIndices(self) -> list[int]:
         """Return the local state index associated with each init residual."""
         initialization = list(sp.Matrix(self.getFInit()))

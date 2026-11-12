@@ -7,6 +7,7 @@ from ..core import Device
 
 class GFL_C_F_L(Device):
     """GFL · C: current references (no outer loop) + current PI, PLL · F: FRT/LVRT reactive-current priority · L: filter inductor only (a terminal capacitor, if any, is a separate Capacitor)."""
+    rmsDynamicStateNames = ("xPLL",)  # differential in the RMS model (besides frame angles)
 
     def __init__(self, Vb, Sb, index):
         super().__init__(Vb, Sb, "Current", index, {

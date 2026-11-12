@@ -8,6 +8,7 @@ from ..core import Device
 
 class GFM_D_N_LC(Device):
     """GFM · D: internal voltage directly behind Rf + jLf, no inner loops · N: no current limiter (the Imax/Ith/kVI/thetaVI parameters are not used by the equations) · LC: terminal capacitor in the device (voltage port)."""
+    rmsDynamicStateNames = ("delta",)  # differential in the RMS model (besides frame angles)
 
     def __init__(self, Vb: float, Sb: float, index: str) -> None:
         super().__init__(

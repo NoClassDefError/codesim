@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 import sympy as sp
 from scipy.integrate import solve_ivp
-from scipy.optimize import root
+from scipy.optimize import least_squares, root
 
 from .rl_grid import RLGrid
 from .small_signal_analyzer import SmallSignalAnalyzer
@@ -364,6 +364,254 @@ class System(ABC):
         if self.outputJsonFactory.streaming and chunkStart < time_s.size:
             emitChunk(chunkStart, time_s.size)
         return state, time_s, events
+
+    # ------------------------------------------------------------------ RMS
+    _RMS_ALGEBRAIC_TOLERANCE = 1e-10
+
+    def _solveRMSAlgebraic(self, rms, state, reference, guesses) -> tuple[np.ndarray, float]:
+        """Solve ``F_a(x_a, x_d) = 0`` for the algebraic states (Newton, then least squares)."""
+        a = rms["algebraicIndices"]
+        candidate = np.asarray(state, dtype=float).copy()
+
+        def residual(xa):
+            candidate[a] = xa
+            return rms["F"](candidate, reference)[a]
+
+        def jacobian(xa):
+            candidate[a] = xa
+            return rms["A"](candidate, reference)[np.ix_(a, a)]
+
+        best, bestNorm = None, np.inf
+        for guess in guesses:
+            xa = np.asarray(guess, dtype=float).copy()
+            try:
+                value = residual(xa)
+                norm = np.linalg.norm(value, np.inf)
+                for _ in range(40):
+                    if norm <= self._RMS_ALGEBRAIC_TOLERANCE:
+                        break
+                    step = np.linalg.solve(jacobian(xa), value)
+                    scale = 1.0
+                    while scale > 1e-4:  # backtracking line search
+                        trial = xa - scale * step
+                        trialValue = residual(trial)
+                        trialNorm = np.linalg.norm(trialValue, np.inf)
+                        if np.isfinite(trialNorm) and trialNorm < (1 - 1e-4 * scale) * norm:
+                            break
+                        scale /= 2
+                    else:
+                        break
+                    xa, value, norm = trial, trialValue, trialNorm
+            except (np.linalg.LinAlgError, FloatingPointError, ValueError):
+                norm = np.inf
+            if norm <= self._RMS_ALGEBRAIC_TOLERANCE:
+                return xa, float(norm)
+            if norm < bestNorm:
+                best, bestNorm = xa, norm
+        for guess in ([best] if best is not None else []) + list(guesses):
+            solution = least_squares(residual, guess, jac=jacobian, xtol=1e-14, ftol=1e-14, gtol=1e-14)
+            norm = float(np.linalg.norm(solution.fun, np.inf))
+            if norm < bestNorm:
+                best, bestNorm = solution.x, norm
+            if norm <= 1e3 * self._RMS_ALGEBRAIC_TOLERANCE:
+                break
+        return best, float(bestNorm)
+
+    def simulateRMS(
+        self, time_s: Any, *, InitialState: Any = None,
+        SolverSettings: Mapping[str, Any] | None = None,
+        Breakpoints_s: Any = (), ReferenceMap: Any = None,
+        ResidualTolerance: float = 1e-6,
+    ) -> dict[str, Any]:
+        """Simulate the RMS (phasor) model in the global DQ frame rotating at 1 pu.
+
+        Differential states (frame angles and each device's
+        ``rmsDynamicStateNames``) are integrated; all other states are solved
+        from ``0 = F_a`` at every step (index-1 DAE by elimination). The
+        initial state is the EMT operating point: at ``t = 0`` the DQ and
+        alpha-beta frames coincide. States are DQ-frame quantities, and frame
+        angles are measured relative to the DQ frame; magnitudes, powers and
+        relative angles are directly comparable with :meth:`simulate`.
+        """
+        started = perf_counter()
+        time_s = np.asarray(time_s, dtype=float).reshape(-1)
+        if self.eventStartTime_s is not None:
+            raise NotImplementedError("simulateRMS does not support state-triggered events")
+        references = self.getReference(source=ReferenceMap)
+        initialization = None
+        if InitialState is None:
+            point = self.initialize(time_s[0], Reference=self.getReference(time_s[0], references))
+            InitialState, initialization = point["state"], point["initialization"]
+        self.rlGrid.refreshParameters()
+        rms = self.rlGrid.rms
+        d, a = rms["differentialIndices"], rms["algebraicIndices"]
+        wBase = 2 * np.pi * self.base["frequency_Hz"]
+        x0 = np.asarray(InitialState, dtype=float).reshape(-1).copy()
+        x0[a], norm0 = self._solveRMSAlgebraic(
+            rms, x0, self.getReference(time_s[0], references), [x0[a]])
+        if norm0 > ResidualTolerance:
+            raise RuntimeError(f"RMS initialization failed: residual {norm0:.3e}")
+        initialAlgebraic = x0[a].copy()
+        last = {"xa": x0[a].copy()}
+
+        def fullState(t, xd):
+            reference = self.getReference(t, references)
+            state = x0.copy(); state[d] = xd
+            xa, norm = self._solveRMSAlgebraic(
+                rms, state, reference, [last["xa"], initialAlgebraic])
+            if norm > ResidualTolerance:
+                raise RuntimeError(f"RMS algebraic solve failed at t = {t:.6g} s (residual {norm:.3e})")
+            state[a] = xa; last["xa"] = xa
+            return state, reference
+
+        def derivative(t, xd):
+            state, reference = fullState(t, xd)
+            return wBase * rms["F"](state, reference)[d]
+
+        settings = {"method": "RK45", "max_step": 1e-3, "rtol": 1e-7, "atol": 1e-9}
+        settings.update(SolverSettings or {})
+        breakpoints = np.unique(np.asarray(Breakpoints_s, dtype=float).reshape(-1))
+        boundaries = np.r_[time_s[0], breakpoints[(breakpoints > time_s[0]) & (breakpoints < time_s[-1])], time_s[-1]]
+        state = np.empty((time_s.size, x0.size))
+        residualNorm = np.zeros(time_s.size)
+        xd = x0[d].copy()
+        for start, stop in zip(boundaries[:-1], boundaries[1:]):
+            solution = solve_ivp(derivative, (start, stop), xd, dense_output=True, **settings)
+            if not solution.success:
+                raise RuntimeError(f"RMS integration failed at {solution.t[-1]:.9g} s: {solution.message}")
+            xd = solution.y[:, -1]
+            inside = np.flatnonzero((time_s >= start) & (time_s <= stop))
+            last["xa"] = state[inside[0] - 1, a] if inside.size and inside[0] > 0 else last["xa"]
+            for k in inside:
+                sample, reference = fullState(time_s[k], solution.sol(time_s[k]))
+                state[k] = sample
+                residualNorm[k] = np.linalg.norm(rms["F"](sample, reference)[a], np.inf)
+        networkSignals = self.calculateNetworkSignals(time_s, state, references)
+        signals = self.calculateSignals(time_s, state, networkSignals)
+        return {
+            "model": "RMS", "time_s": time_s, "state": state, "stateNames": self.stateNames,
+            "signals": signals, "referenceNames": self.referenceNames,
+            "referenceTrace": networkSignals["referenceTrace"],
+            "initialization": initialization, "parameters": self.parameters,
+            "differentialStateNames": [self.stateNames[i] for i in d],
+            "algebraicStateNames": [self.stateNames[i] for i in a],
+            "algebraicResidual": residualNorm,
+            "simulationTime_s": perf_counter() - started,
+        }
+
+    def correctRMS(
+        self, rmsResult: Mapping[str, Any], *, cutoff_Hz: float = 1000.0,
+        eigenvalueSamples: int = 200,
+    ) -> dict[str, Any]:
+        """First-order (LTV) correction of an RMS trajectory, in the DQ frame.
+
+        With the RMS states ``x_RMS(t)`` and ``Delta x = x_EMT - x_RMS``, the
+        algebraic (electrical) states obey the EMT equations ``dx_a/dtau =
+        F_a``. Linearized along the RMS trajectory, where ``F_a = 0``::
+
+            dDelta_a/dtau = A_aa(t) Delta_a - dx_a,RMS/dtau,
+            dx_a,RMS/dtau = -A_aa^-1 (A_ad dx_d/dtau + B_a du/dtau),
+
+        with ``Delta_d = 0``: the slow states are those of the RMS model.
+        ``A_aa`` holds the dynamic network/filter operators and the limiter,
+        FRT and frame-rotation Jacobians.
+
+        Integration is modal and exact for each output interval: ``A_aa`` is
+        frozen at the interval midpoint and diagonalized, the forcing is linear
+        in time (``u`` piecewise linear; include breakpoints in the grid).
+        Modes with ``|lambda| <= 2 pi cutoff_Hz`` are integrated with the
+        exponential integrator. Faster modes (line-charging LC resonances,
+        ideal-source dynamics) keep their quasi-static forced response
+        ``z = -g / lambda``: they are first-order singular perturbations of the
+        correction itself, and a weakly unstable high-frequency mode cannot
+        grow without the EMT nonlinearities that bound it. ``cutoff_Hz=inf``
+        integrates every mode (plain LTV model).
+        """
+        started = perf_counter()
+        time_s = np.asarray(rmsResult["time_s"], dtype=float)
+        stateRMS = np.asarray(rmsResult["state"], dtype=float)
+        references = np.asarray(rmsResult["referenceTrace"], dtype=float)
+        self.rlGrid.refreshParameters()
+        rms = self.rlGrid.rms
+        d, a = rms["differentialIndices"], rms["algebraicIndices"]
+        wBase = 2 * np.pi * self.base["frequency_Hz"]
+        tau = wBase * time_s
+        na, count = a.size, time_s.size
+        Aaa = np.empty((count, na, na))
+        Ead = np.empty((count, na, d.size))  # A_aa^-1 A_ad
+        Eau = np.empty((count, na, references.shape[1]))  # A_aa^-1 B_a
+        xdRate = np.empty((count, d.size))
+        for k in range(count):
+            A = rms["A"](stateRMS[k], references[k])
+            B = rms["B"](stateRMS[k], references[k]).reshape(len(self.stateNames), -1)
+            Aaa[k] = A[np.ix_(a, a)]
+            Ead[k] = np.linalg.solve(Aaa[k], A[np.ix_(a, d)])
+            Eau[k] = np.linalg.solve(Aaa[k], B[a])
+            xdRate[k] = rms["F"](stateRMS[k], references[k])[d]
+
+        def forcing(k, referenceRate):
+            return Ead[k] @ xdRate[k] + Eau[k] @ referenceRate  # = -dx_a,RMS/dtau
+
+        def phi(x, order):
+            """phi_1(x) = (e^x - 1)/x, phi_2(x) = (e^x - 1 - x)/x^2 (series near 0)."""
+            small = np.abs(x) < 1e-6
+            safe = np.where(small, 1.0, x)
+            if order == 1:
+                return np.where(small, 1 + x / 2, np.expm1(safe) / safe)
+            return np.where(small, 0.5 + x / 6, (np.expm1(safe) - safe) / safe**2)
+
+        cutoff = 2 * np.pi * cutoff_Hz / wBase  # pu (per tau)
+        delta = np.zeros((count, na))
+        current = np.zeros(na, dtype=complex)
+        quasiStaticCount = np.zeros(count, dtype=int)
+        for k in range(count - 1):
+            h = tau[k + 1] - tau[k]
+            referenceRate = (references[k + 1] - references[k]) / h
+            r0, r1 = forcing(k, referenceRate), forcing(k + 1, referenceRate)
+            poles, vectors = np.linalg.eig(0.5 * (Aaa[k] + Aaa[k + 1]))
+            z0 = np.linalg.solve(vectors, current)
+            g0, g1 = np.linalg.solve(vectors, r0), np.linalg.solve(vectors, r1)
+            x = poles * h
+            dynamic = np.abs(poles) <= cutoff
+            z1 = np.where(
+                dynamic,
+                np.exp(x) * z0 + h * phi(x, 1) * g0 + h * phi(x, 2) * (g1 - g0),
+                -g1 / poles,
+            )
+            current = vectors @ z1
+            quasiStaticCount[k + 1] = int(np.count_nonzero(~dynamic))
+            delta[k + 1] = current.real
+        state = stateRMS.copy()
+        state[:, a] += delta
+        networkSignals = self.calculateNetworkSignals(time_s, state, self.getReference())
+        networkSignals["referenceTrace"] = references
+        signals = self.calculateSignals(time_s, state, networkSignals)
+        sampleIndices = np.unique(np.linspace(0, count - 1, min(eigenvalueSamples, count)).astype(int))
+        return {
+            "model": "RMS+Delta", "time_s": time_s, "state": state, "stateNames": self.stateNames,
+            "signals": signals, "referenceNames": self.referenceNames, "referenceTrace": references,
+            "parameters": self.parameters, "delta": delta, "cutoff_Hz": cutoff_Hz,
+            "quasiStaticModeCount": quasiStaticCount,
+            "algebraicStateNames": [self.stateNames[i] for i in a],
+            "eigenvalueTime_s": time_s[sampleIndices],
+            "fastEigenvalues_per_s": np.asarray([wBase * np.linalg.eigvals(Aaa[k]) for k in sampleIndices]),
+            "simulationTime_s": perf_counter() - started,
+        }
+
+    def rmsSmallSignal(self, operatingPoint: Mapping[str, Any]) -> dict[str, Any]:
+        """Linearized RMS model: ``A_red = A_dd - A_da A_aa^-1 A_ad`` and the fast ``A_aa`` (pu, per tau)."""
+        self.rlGrid.refreshParameters()
+        rms = self.rlGrid.rms
+        d, a = rms["differentialIndices"], rms["algebraicIndices"]
+        A = rms["A"](operatingPoint["state"], operatingPoint["reference"])
+        Aaa = A[np.ix_(a, a)]
+        reduced = A[np.ix_(d, d)] - A[np.ix_(d, a)] @ np.linalg.solve(Aaa, A[np.ix_(a, d)])
+        return {
+            "A": A, "reducedA": reduced, "fastA": Aaa,
+            "reducedPoles": np.linalg.eigvals(reduced), "fastPoles": np.linalg.eigvals(Aaa),
+            "differentialStateNames": [self.stateNames[i] for i in d],
+            "algebraicStateNames": [self.stateNames[i] for i in a],
+        }
 
     def eventHandler(self, time_s: float, state: np.ndarray) -> float:
         """Return a nonzero value for systems without state-triggered events."""

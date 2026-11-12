@@ -20,6 +20,7 @@ from .gfl_p_f_l import GFL_P_F_L
 from .gfm_a_c_l import GFM_A_C_L
 from .gfm_a_c_lc import GFM_A_C_LC
 from .gfm_d_avi import GFM_D_H_LC, GFM_D_L_LC, GFM_D_S_LC
+from .gfm_d_l_l import GFM_D_L_L
 from .gfm_d_n_lc import GFM_D_N_LC
 from .gfm_v_c_lc import GFM_V_C_LC
 from .infbus import Infbus
@@ -31,6 +32,6 @@ from .zip import ZIP
 
 __all__ = [
     "Capacitor", "CPL", "Infbus", "InductionMotor", "PQLoad", "SG", "ZeroCurrent", "ZIP",
-    "GFM_A_C_LC", "GFM_V_C_LC", "GFM_A_C_L", "GFM_D_N_LC", "GFM_D_L_LC", "GFM_D_S_LC", "GFM_D_H_LC",
+    "GFM_A_C_LC", "GFM_V_C_LC", "GFM_A_C_L", "GFM_D_N_LC", "GFM_D_L_LC", "GFM_D_S_LC", "GFM_D_H_LC", "GFM_D_L_L",
     "GFL_P_F_L", "GFL_C_F_L",
 ]

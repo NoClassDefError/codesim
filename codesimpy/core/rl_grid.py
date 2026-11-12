@@ -245,6 +245,92 @@ class RLGrid:
             self._modelEntry["AFunction"] = self._lambdify(self.A_sym)
         return self._wrap(self._modelEntry["AFunction"], matrix=True)
 
+    # ------------------------------------------------------------------ RMS
+    def getRMSDifferentialIndices(self) -> list[int]:
+        """Global indices of the states integrated by the RMS model.
+
+        Branch currents are always algebraic (phasor network). Each device
+        contributes its frame angles and ``rmsDynamicStateNames``.
+        """
+        indices: list[int] = []
+        offset = 2 * self.b
+        for Vdev, Idev in zip(self.Vdev, self.Idev):
+            for device in (Vdev, Idev):
+                indices.extend(offset + i for i in device.getRMSDifferentialIndices())
+                offset += len(device.x)
+        return indices
+
+    def getRMSEquationsSym(self) -> sp.Matrix:
+        """RMS model in the global DQ frame rotating at 1 pu: one row per state.
+
+        Branch rows are the phasor network ``L^-1 (A^T v - R i) - J i``, i.e.
+        the existing initialization rows. Device rows come from
+        ``Device.getRMSEquationsSym`` with the same port substitutions as the
+        EMT model. Rows of algebraic states read ``0 = F_a``; rows of
+        differential states read ``dx_d/dtau = F_d``. Read with ``dx_a/dtau =
+        F_a`` the same matrix is the EMT model written in the DQ frame.
+        """
+        Abar = (
+            sp.kronecker_product(sp.Matrix(self.A), sp.eye(2))
+            if self.b else sp.zeros(2 * self.n, 0)
+        )
+        networkCurrent = Abar * (sp.Matrix(self.ibsym) if self.b else sp.zeros(0, 1))
+        voltageStart = 2 * self.b
+        currentStart = voltageStart + 2 * self.n
+        nodeVoltage = self.g[voltageStart:currentStart, :]
+        deviceCurrent = self.g[currentStart:currentStart + 2 * self.n, :]
+        parts: list[sp.Matrix] = [sp.Matrix(self.f_init_sym[: 2 * self.b, :])]
+        for i, (Vdev, Idev) in enumerate(zip(self.Vdev, self.Idev)):
+            indices = [2 * i, 2 * i + 1]
+            voltageInput = [networkCurrent[j] - deviceCurrent[j] for j in indices]
+            voltageSubs = dict(zip(Vdev.u, [Vdev.Inputscale * item for item in voltageInput]))
+            currentSubs = dict(zip(Idev.u, [Idev.Inputscale * nodeVoltage[j] for j in indices]))
+            for device, substitutions in ((Vdev, voltageSubs), (Idev, currentSubs)):
+                equations = device.getRMSEquationsSym()
+                if len(equations):
+                    parts.append(sp.Matrix(equations).subs(substitutions, simultaneous=True))
+        return sp.Matrix.vstack(*parts)
+
+    @property
+    def rms(self) -> dict[str, Any]:
+        """Compiled RMS model, built on first use and shared via the model cache.
+
+        Keys: ``differentialIndices``, ``algebraicIndices``, ``F`` (``F(x, u)``),
+        ``A`` (``dF/dx``), ``B`` (``dF/du``), ``F_sym``.
+        """
+        differential = tuple(self.getRMSDifferentialIndices())
+        key = ("rms", differential)
+        if key not in self._modelEntry:
+            from .device import Device
+            F = self.getRMSEquationsSym()
+            defaultOnly = all(
+                type(device).getRMSEquationsSym is Device.getRMSEquationsSym
+                for device in self.Vdev + self.Idev
+            )
+            # The default RMS rows differ from f_init_sym only by constants, so
+            # their state Jacobian is the (cached) A_sym.
+            Ax = self.A_sym if defaultOnly else sp.ImmutableMatrix(F.jacobian(self.x))
+            Bu = F.jacobian(self.u) if self.u else sp.zeros(F.rows, 0)
+            self._modelEntry[key] = {
+                "F_sym": sp.ImmutableMatrix(F),
+                "FFunction": self._lambdify(F),
+                "AFunction": self._modelEntry.get("AFunction") if defaultOnly else self._lambdify(Ax),
+                "BFunction": self._lambdify(Bu),
+            }
+            if self._modelEntry[key]["AFunction"] is None:
+                self.A_core  # compiles and stores AFunction
+                self._modelEntry[key]["AFunction"] = self._modelEntry["AFunction"]
+        entry = self._modelEntry[key]
+        algebraic = tuple(i for i in range(len(self.x)) if i not in set(differential))
+        return {
+            "differentialIndices": np.asarray(differential, dtype=int),
+            "algebraicIndices": np.asarray(algebraic, dtype=int),
+            "F_sym": entry["F_sym"],
+            "F": self._wrap(entry["FFunction"]),
+            "A": self._wrap(entry["AFunction"], matrix=True),
+            "B": self._wrap(entry["BFunction"], matrix=True),
+        }
+
     def _lambdify(self, expression: sp.Matrix):
         """Compile an expression; arguments are states, references, then parameters."""
         arguments = list(self.x) + list(self.u) + list(self.parameterMap["parameterSymbols"])
