@@ -70,6 +70,8 @@ class CLI:
             self.runInteraction(requestId, params)
         elif method == "transientVoltage.run":
             self.runTransientVoltage(requestId, params)
+        elif method == "rms.run":
+            self.runRMS(requestId, params)
         elif method == "server.shutdown":
             self.outputJsonFactory.writeResponse(requestId, {"shutdown": True})
             self.running = False
@@ -139,10 +141,8 @@ class CLI:
             )
         return self.operatingPoint
 
-    def runSimulation(self, requestId: Any, params: dict[str, Any]) -> None:
-        self.loadModel(params)
-        self.system.outputJsonFactory.latestTransientVoltage = {}
-        operatingPoint = self.getOperatingPoint()
+    def outputTime(self) -> np.ndarray:
+        """Output grid from the runtime options, including every breakpoint."""
         time_s = np.arange(
             self.options["StartTime_s"], self.options["EndTime_s"],
             self.options["OutputStep_s"], dtype=float,
@@ -151,10 +151,16 @@ class CLI:
             time_s, self.options["EndTime_s"],
             np.asarray(self.options["Breakpoints_s"], dtype=float),
         ])
-        time_s = time_s[
+        return time_s[
             (time_s >= self.options["StartTime_s"])
             & (time_s <= self.options["EndTime_s"])
         ]
+
+    def runSimulation(self, requestId: Any, params: dict[str, Any]) -> None:
+        self.loadModel(params)
+        self.system.outputJsonFactory.latestTransientVoltage = {}
+        operatingPoint = self.getOperatingPoint()
+        time_s = self.outputTime()
         self.system.outputJsonFactory.beginSimulation(requestId)
         self.outputJsonFactory.writeEvent(
             "simulation.started", requestId,
@@ -217,6 +223,35 @@ class CLI:
             self.system.outputJsonFactory.serializeTransientVoltage(decomposition)
         )
         snapshotFile, descriptor = self.system.outputJsonFactory.saveSnapshot()
+        self.outputJsonFactory.writeResponse(requestId, {
+            "descriptor": descriptor, "snapshotFile": str(snapshotFile),
+        })
+
+    def runRMS(self, requestId: Any, params: dict[str, Any]) -> None:
+        """RMS (phasor) simulation from the EMT operating point, optionally with the RMS+Delta correction."""
+        self.loadModel(params, saveSnapshot=False)
+        operatingPoint = self.getOperatingPoint()
+        solverSettings = {}
+        if params.get("maxStep_s") is not None:
+            maxStep_s = float(params["maxStep_s"])
+            if not np.isfinite(maxStep_s) or maxStep_s <= 0:
+                raise ValueError("maxStep_s must be a positive number")
+            solverSettings["max_step"] = maxStep_s
+        rms = self.system.simulateRMS(
+            self.outputTime(), InitialState=operatingPoint["state"],
+            SolverSettings=solverSettings,
+            Breakpoints_s=self.options["Breakpoints_s"],
+            ResidualTolerance=self.options["ResidualTolerance"],
+        )
+        corrected = None
+        if params.get("correction"):
+            cutoff_Hz = float(params.get("cutoff_Hz") or 1000.0)
+            if not cutoff_Hz > 0:
+                raise ValueError("cutoff_Hz must be positive")
+            corrected = self.system.correctRMS(rms, cutoff_Hz=cutoff_Hz)
+        factory = self.system.outputJsonFactory
+        factory.latestRMS = factory.serializeRMS(rms, corrected)
+        snapshotFile, descriptor = factory.saveSnapshot()
         self.outputJsonFactory.writeResponse(requestId, {
             "descriptor": descriptor, "snapshotFile": str(snapshotFile),
         })

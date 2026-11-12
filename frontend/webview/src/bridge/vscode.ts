@@ -70,6 +70,19 @@ export function runTransientVoltage(
   });
 }
 
+export interface RMSRunOptions {
+  /** Also compute the first-order RMS+Δ correction. */
+  correction: boolean;
+  /** Modal cutoff of the correction (Hz). */
+  cutoff_Hz?: number;
+  /** Maximum integrator step for the slow states (s); backend default when omitted. */
+  maxStep_s?: number;
+}
+
+export function runRMS(systemName: string, options: RMSRunOptions): void {
+  vscode?.postMessage({ type: 'runRMS', systemName, ...options });
+}
+
 export function updateSystemParameter(name: string, value: ParameterValue): void {
   vscode?.postMessage({ type: 'updateSystemParameter', parameterName: name, parameterValue: value });
 }
@@ -149,6 +162,9 @@ export interface BackendStatus {
   backendRunning?: boolean;
   running: boolean;
   action?: string;
+  /** On the final status of a run: which action finished, and its error if it failed. */
+  finishedAction?: string;
+  error?: string;
   selectedSystem?: string;
 }
 

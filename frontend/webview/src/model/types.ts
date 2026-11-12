@@ -216,6 +216,24 @@ export interface TransientVoltageDescriptor {
   };
 }
 
+/** RMS (phasor) run and its optional first-order RMS+Δ correction. */
+export interface RMSSimulationDescriptor {
+  available: boolean;
+  model: 'RMS' | 'RMS+Delta';
+  simulationTime_s?: number;
+  differentialStateNames: string[];
+  algebraicStateNames: string[];
+  time_s: number[];
+  algebraicResidual: Array<number | null>;
+  maxAlgebraicResidual: number;
+  /** RMS signals; corrected ones carry an `[RMS+Δ]` label suffix. */
+  signals: SignalDescriptor[];
+  cutoff_Hz?: number;
+  correctionTime_s?: number;
+  quasiStaticModeCount?: number[];
+  maxQuasiStaticModeCount?: number;
+}
+
 export interface SystemSnapshot {
   schemaVersion: number;
   system: {
@@ -232,6 +250,7 @@ export interface SystemSnapshot {
   smallSignal?: SmallSignalDescriptor;
   interactionAnalysis?: InteractionAnalysisDescriptor;
   transientVoltage?: TransientVoltageDescriptor;
+  rmsSimulation?: RMSSimulationDescriptor;
   layout?: SnapshotLayout;
 }
 

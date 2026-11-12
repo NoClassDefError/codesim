@@ -8,6 +8,7 @@ import {
   requestSystemSnapshot,
 } from './bridge/vscode';
 import { InteractionAnalysisPanel } from './components/InteractionAnalysisPanel';
+import { RMSPanel } from './components/RMSPanel';
 import { SmallSignalPanel } from './components/SmallSignalPanel';
 import { Toolbar } from './components/Toolbar';
 import { TransientVoltagePanel } from './components/TransientVoltagePanel';
@@ -26,7 +27,7 @@ export function SignalsApp() {
   const [snapshot, setSnapshot] = useState<SystemSnapshot>(() => (
     isInsideVsCode() ? { ...mockSystem, signals: [] } : mockSystem
   ));
-  const [activeTab, setActiveTab] = useState<'time' | 'transient-voltage' | 'small-signal' | 'interaction'>('time');
+  const [activeTab, setActiveTab] = useState<'time' | 'rms' | 'transient-voltage' | 'small-signal' | 'interaction'>('time');
 
   useEffect(() => {
     const buffer = new SimulationSignalBuffer();
@@ -108,6 +109,13 @@ export function SignalsApp() {
           </button>
           <button
             type="button"
+            className={activeTab === 'rms' ? 'active' : ''}
+            onClick={() => setActiveTab('rms')}
+          >
+            RMS simulation
+          </button>
+          <button
+            type="button"
             className={activeTab === 'transient-voltage' ? 'active' : ''}
             onClick={() => setActiveTab('transient-voltage')}
           >
@@ -130,6 +138,8 @@ export function SignalsApp() {
         </nav>
         {activeTab === 'time' ? (
           <WaveformPanel snapshot={snapshot} />
+        ) : activeTab === 'rms' ? (
+          <RMSPanel snapshot={snapshot} />
         ) : activeTab === 'transient-voltage' ? (
           <TransientVoltagePanel snapshot={snapshot} />
         ) : activeTab === 'small-signal' ? (

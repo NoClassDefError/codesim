@@ -1373,6 +1373,39 @@ body[data-view="viewer"] .toolbar-actions .toolbar-icon-button {
 .transient-method-preview .qss { background: #4fc1ff; }
 .transient-method-preview .first { background: #c586e0; }
 .transient-method-preview .emt { background: #ffb454; }
+.rms-panel > .signals-workspace { min-width: 0; }
+.transient-controls > label.rms-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+.transient-controls > label.rms-check input { margin: 0; }
+.rms-error {
+  margin: 12px 0 0;
+  padding: 7px 9px;
+  border-left: 2px solid var(--vscode-errorForeground, #f48771);
+  color: var(--vscode-errorForeground, #f48771);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.rms-state-list {
+  margin-top: 12px;
+  font-size: 11px;
+}
+.rms-state-list summary {
+  color: var(--vscode-foreground, #ddd);
+  cursor: pointer;
+}
+.rms-state-list ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--vscode-descriptionForeground, #aaa);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  line-height: 1.6;
+}
 .transient-content {
   min-width: 0;
   min-height: 0;

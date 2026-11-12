@@ -12,7 +12,7 @@ const backendStatusColorId = 'codesim.backendRunningForeground';
 const defaultSystem = 'SMIB__GFM_A_C_LC';
 const pythonExtensionId = 'ms-python.python';
 
-type AnalysisKind = 'simulation' | 'smallSignal' | 'interaction' | 'transientVoltage';
+type AnalysisKind = 'simulation' | 'smallSignal' | 'interaction' | 'transientVoltage' | 'rms';
 // 'viewer' is the topology sidebar, 'signals' the results panel.
 type WebviewRole = 'viewer' | 'signals';
 type SnapshotReason = 'load' | 'analysis' | 'request';
@@ -25,6 +25,7 @@ const viewerOmittedSnapshotFields = [
 	'smallSignal',
 	'interactionAnalysis',
 	'transientVoltage',
+	'rmsSimulation',
 ];
 
 function appendInPlace(target: unknown[], source: unknown): void {
@@ -72,6 +73,9 @@ interface WebviewMessage {
 	parameterValue?: unknown;
 	slowStateNames?: string[];
 	maxSamples?: number;
+	correction?: boolean;
+	cutoff_Hz?: number;
+	maxStep_s?: number;
 }
 
 interface BackendResponse {
@@ -246,6 +250,9 @@ class CodeSimHost {
 					message.systemName, message.slowStateNames, message.maxSamples,
 				);
 				break;
+			case 'runRMS':
+				await this.runRMS(message);
+				break;
 			case 'updateSystemParameter':
 				this.updateSystemParameter(message.parameterName, message.parameterValue);
 				break;
@@ -350,6 +357,21 @@ class CodeSimHost {
 		});
 	}
 
+	private async runRMS(message: WebviewMessage): Promise<void> {
+		const selected = await this.validateSystemName(message.systemName);
+		if (!selected) {
+			return;
+		}
+		const finite = (value: unknown) => (
+			typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+		);
+		await this.runBackend('rms', selected, {
+			correction: message.correction === true,
+			cutoff_Hz: finite(message.cutoff_Hz),
+			maxStep_s: finite(message.maxStep_s),
+		});
+	}
+
 	private async validateSystemName(systemName: string | undefined): Promise<string | undefined> {
 		try {
 			const systems = await this.request<string[]>('getSystems', {});
@@ -418,6 +440,7 @@ class CodeSimHost {
 			return;
 		}
 
+		let failure: string | undefined;
 		try {
 			this.activeAction = action;
 			this.output.show(true);
@@ -437,7 +460,9 @@ class CodeSimHost {
 						? 'smallSignal.run'
 						: action === 'interaction'
 							? 'interaction.run'
-							: 'transientVoltage.run';
+							: action === 'rms'
+								? 'rms.run'
+								: 'transientVoltage.run';
 			const result = await this.request<Record<string, unknown>>(method, {
 				systemName,
 				parameters: this.parameterOverrides,
@@ -454,6 +479,7 @@ class CodeSimHost {
 			this.output.appendLine('=== completed ===');
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
+			failure = detail;
 			this.output.appendLine(`=== failed · ${detail} ===`);
 			void vscode.window.showErrorMessage(`CodeSim backend failed: ${detail}`);
 		} finally {
@@ -461,6 +487,8 @@ class CodeSimHost {
 			await this.postToWebviews({
 				type: 'backendStatus',
 				running: false,
+				finishedAction: action,
+				error: failure,
 				selectedSystem: this.selectedSystem,
 			});
 		}

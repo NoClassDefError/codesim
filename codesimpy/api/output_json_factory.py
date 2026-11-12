@@ -34,6 +34,7 @@ class OutputJsonFactory:
         self.latestSmallSignal: dict[str, Any] = {}
         self.latestInteractionAnalysis: dict[str, Any] = {}
         self.latestTransientVoltage: dict[str, Any] = {}
+        self.latestRMS: dict[str, Any] = {}
         self.outputDirectory = Path(outputDirectory) if outputDirectory else Path(__file__).resolve().parents[2] / "codegen"
         self.preserveExisting = True
 
@@ -224,6 +225,7 @@ class OutputJsonFactory:
             "smallSignal": self.latestSmallSignal,
             "interactionAnalysis": self.latestInteractionAnalysis,
             "transientVoltage": self.latestTransientVoltage,
+            "rmsSimulation": self.latestRMS,
         }
 
     def saveSnapshot(self, simulation: dict[str, Any] | None = None):
@@ -328,7 +330,49 @@ class OutputJsonFactory:
             and not newSimulation
         ):
             descriptor["transientVoltage"] = existingTransient
+        rms = descriptor.get("rmsSimulation", {})
+        existingRMS = existing.get("rmsSimulation", {})
+        if compatible and not rms.get("available") and existingRMS.get("available"):
+            descriptor["rmsSimulation"] = existingRMS
         return descriptor
+
+    def serializeRMS(
+        self, rms: dict[str, Any], corrected: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """[snapshot] Serialize an RMS run and its optional RMS+Delta correction.
+
+        The corrected signals keep the RMS label prefix (so default plots group
+        them with the RMS traces) and get an ``[RMS+Δ]`` suffix and a distinct id.
+        """
+        signals = self.buildSignals(rms)
+        if corrected is not None:
+            for signal in self.buildSignals(corrected):
+                signals.append({
+                    **signal,
+                    "id": f"{signal['id']}-rms-delta",
+                    "label": f"{signal['label']} [RMS+Δ]",
+                })
+        residual = np.asarray(rms.get("algebraicResidual", []), dtype=float)
+        result = {
+            "available": True,
+            "model": corrected["model"] if corrected is not None else rms.get("model", "RMS"),
+            "simulationTime_s": rms.get("simulationTime_s"),
+            "differentialStateNames": list(rms.get("differentialStateNames", [])),
+            "algebraicStateNames": list(rms.get("algebraicStateNames", [])),
+            "time_s": self.jsonSafe(np.asarray(rms["time_s"], dtype=float)),
+            "algebraicResidual": self.jsonSafe(residual),
+            "maxAlgebraicResidual": float(residual.max()) if residual.size else 0.0,
+            "signals": signals,
+        }
+        if corrected is not None:
+            quasiStatic = np.asarray(corrected.get("quasiStaticModeCount", []), dtype=int)
+            result.update({
+                "cutoff_Hz": corrected.get("cutoff_Hz"),
+                "correctionTime_s": corrected.get("simulationTime_s"),
+                "quasiStaticModeCount": self.jsonSafe(quasiStatic),
+                "maxQuasiStaticModeCount": int(quasiStatic.max()) if quasiStatic.size else 0,
+            })
+        return result
 
     def serializeTransientVoltage(self, decomposition: dict[str, Any]) -> dict[str, Any]:
         """[snapshot] Serialize transient bus-voltage decomposition traces."""
