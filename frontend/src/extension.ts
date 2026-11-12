@@ -12,7 +12,7 @@ const backendStatusColorId = 'codesim.backendRunningForeground';
 const defaultSystem = 'SMIB__GFM_A_C_LC';
 const pythonExtensionId = 'ms-python.python';
 
-type AnalysisKind = 'simulation' | 'smallSignal' | 'interaction' | 'transientVoltage' | 'rms';
+type AnalysisKind = 'simulation' | 'smallSignal' | 'interaction' | 'rms';
 // 'viewer' is the topology sidebar, 'signals' the results panel.
 type WebviewRole = 'viewer' | 'signals';
 type SnapshotReason = 'load' | 'analysis' | 'request';
@@ -24,9 +24,23 @@ const viewerOmittedSnapshotFields = [
 	'simulationData',
 	'smallSignal',
 	'interactionAnalysis',
-	'transientVoltage',
 	'rmsSimulation',
 ];
+
+/** RMS descriptor shown while an RMS run streams; chunks fill its signals. */
+function liveRMSPlaceholder(): Record<string, unknown> {
+	return {
+		available: true,
+		streaming: true,
+		model: 'RMS',
+		differentialStateNames: [],
+		algebraicStateNames: [],
+		time_s: [],
+		algebraicResidual: [],
+		maxAlgebraicResidual: 0,
+		signals: [],
+	};
+}
 
 function appendInPlace(target: unknown[], source: unknown): void {
 	if (!Array.isArray(source)) {
@@ -71,8 +85,6 @@ interface WebviewMessage {
 	analysis?: AnalysisKind;
 	parameterName?: string;
 	parameterValue?: unknown;
-	slowStateNames?: string[];
-	maxSamples?: number;
 	correction?: boolean;
 	cutoff_Hz?: number;
 	maxStep_s?: number;
@@ -245,11 +257,6 @@ class CodeSimHost {
 			case 'runAnalysis':
 				await this.runAnalysis(message.analysis, message.systemName);
 				break;
-			case 'runTransientVoltage':
-				await this.runTransientVoltage(
-					message.systemName, message.slowStateNames, message.maxSamples,
-				);
-				break;
 			case 'runRMS':
 				await this.runRMS(message);
 				break;
@@ -336,25 +343,6 @@ class CodeSimHost {
 			return;
 		}
 		await this.runBackend(analysis, selected);
-	}
-
-	private async runTransientVoltage(
-		systemName: string | undefined,
-		slowStateNames: string[] | undefined,
-		maxSamples: number | undefined,
-	): Promise<void> {
-		const selected = await this.validateSystemName(systemName);
-		if (!selected) {
-			return;
-		}
-		if (!slowStateNames?.length) {
-			void vscode.window.showErrorMessage('Select one or more slow states for voltage decomposition.');
-			return;
-		}
-		await this.runBackend('transientVoltage', selected, {
-			slowStateNames,
-			maxSamples,
-		});
 	}
 
 	private async runRMS(message: WebviewMessage): Promise<void> {
@@ -460,9 +448,7 @@ class CodeSimHost {
 						? 'smallSignal.run'
 						: action === 'interaction'
 							? 'interaction.run'
-							: action === 'rms'
-								? 'rms.run'
-								: 'transientVoltage.run';
+							: 'rms.run';
 			const result = await this.request<Record<string, unknown>>(method, {
 				systemName,
 				parameters: this.parameterOverrides,
@@ -523,7 +509,10 @@ class CodeSimHost {
 			this.output.appendLine(`[backend] Python executable: ${executable}`);
 			const backend = this.backendPath();
 			this.output.appendLine(`[backend] ${backend.module} in ${backend.cwd}`);
-			const env = { ...globalThis.process.env };
+			// The backend protocol is UTF-8 JSON lines; never use the locale encoding (e.g. GBK).
+			const env: NodeJS.ProcessEnv = {
+				...globalThis.process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1',
+			};
 			if (backend.pythonPath) {
 				env.PYTHONPATH = [backend.pythonPath, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
 			}
@@ -627,10 +616,24 @@ class CodeSimHost {
 					message.signals,
 				);
 			}
+			// A streaming RMS run replaces the previous RMS result with a live
+			// placeholder; the final descriptor arrives with the response.
+			if (message.type === 'rms.started' && this.isSystemSnapshot(this.currentSnapshot)) {
+				(this.currentSnapshot as Record<string, unknown>).rmsSimulation = liveRMSPlaceholder();
+			}
+			if (message.type === 'rms.chunk' && this.isSystemSnapshot(this.currentSnapshot)) {
+				const snapshot = this.currentSnapshot as Record<string, unknown>;
+				const rms = snapshot.rmsSimulation as Record<string, unknown> | undefined;
+				if (rms?.streaming) {
+					this.appendSimulationChunk(rms, message.signals);
+				}
+			}
 			// Streaming events only matter to the Signals panel.
 			await this.postToWebviews(
 				message,
-				message.type.startsWith('simulation.') ? 'signals' : undefined,
+				message.type.startsWith('simulation.') || message.type.startsWith('rms.')
+					? 'signals'
+					: undefined,
 			);
 			return;
 		}
@@ -736,7 +739,7 @@ class CodeSimHost {
 
 	private async acceptSnapshot(value: unknown, reason: SnapshotReason): Promise<boolean> {
 		try {
-			const snapshot = this.unwrapSnapshot(value);
+			const snapshot = this.restoreOmittedFields(this.unwrapSnapshot(value));
 			if (!this.isSystemSnapshot(snapshot)) {
 				throw new Error(
 					'The backend response does not contain system, components, connections, and signals.',
@@ -793,6 +796,32 @@ class CodeSimHost {
 			}
 			void vscode.window.showErrorMessage(`Unable to save the topology layout: ${detail}`);
 		}
+	}
+
+	/**
+	 * The backend leaves out heavy fields (signals, RMS result) that are
+	 * unchanged since its previous response and lists them in `omittedFields`;
+	 * take them from the cached snapshot.
+	 */
+	private restoreOmittedFields(value: unknown): unknown {
+		if (!value || typeof value !== 'object') {
+			return value;
+		}
+		const record = value as Record<string, unknown>;
+		if (!Array.isArray(record.omittedFields)) {
+			return value;
+		}
+		const previous = this.isSystemSnapshot(this.currentSnapshot)
+			? this.currentSnapshot as Record<string, unknown>
+			: undefined;
+		const restored: Record<string, unknown> = { ...record };
+		delete restored.omittedFields;
+		for (const field of record.omittedFields) {
+			if (typeof field === 'string' && previous && field in previous) {
+				restored[field] = previous[field];
+			}
+		}
+		return restored;
 	}
 
 	private unwrapSnapshot(value: unknown): unknown {

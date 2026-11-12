@@ -11,6 +11,8 @@ import sympy as sp
 from scipy.linalg import eig
 from scipy.optimize import least_squares, root
 
+from .symbolic import cseJacobian, expandCse, lambdifyCse, splitColumns
+
 # Symbolic models keyed by RLGrid._structureKey(); oldest entries are evicted first.
 _MODEL_CACHE: "OrderedDict[tuple, dict[str, Any]]" = OrderedDict()
 _MODEL_CACHE_SIZE = 8
@@ -145,8 +147,8 @@ class RLGrid:
         else:
             _MODEL_CACHE.move_to_end(key)
         self._modelEntry = entry
-        self.__dict__.pop("A_sym", None)
-        self.__dict__.pop("A_core", None)
+        for name in ("A_cse", "A_sym", "A_core"):
+            self.__dict__.pop(name, None)
 
         self.f, self.g = entry["f"], entry["g"]
         self.f_init_sym = entry["f_init_sym"]
@@ -229,20 +231,31 @@ class RLGrid:
         }
 
     @cached_property
+    def A_cse(self) -> tuple[list[tuple[sp.Symbol, sp.Expr]], sp.ImmutableMatrix]:
+        """State Jacobian in CSE form ``(intermediates, J)``, shared via the model cache.
+
+        See :func:`codesimpy.core.symbolic.cseJacobian`: far faster and smaller
+        than differentiating the expanded model.
+        """
+        if "A_cse" not in self._modelEntry:
+            self._modelEntry["A_cse"] = cseJacobian(self.f_init_sym, self.x)
+        return self._modelEntry["A_cse"]
+
+    @cached_property
     def A_sym(self) -> sp.Matrix:
-        """Symbolic state Jacobian, derived on first use and shared via the model cache."""
+        """Fully expanded symbolic state Jacobian (back-substituted :attr:`A_cse`).
+
+        Kept for API compatibility; numerical analyses use :attr:`A_core`.
+        """
         if "A_sym" not in self._modelEntry:
-            jacobian = self.f_init_sym.jacobian(self.x)
-            if jacobian.has(sp.Derivative):
-                raise ValueError("state Jacobian contains unresolved symbolic derivatives")
-            self._modelEntry["A_sym"] = sp.ImmutableMatrix(jacobian)
+            self._modelEntry["A_sym"] = expandCse(*self.A_cse)
         return self._modelEntry["A_sym"]
 
     @cached_property
     def A_core(self):
         """Numeric state Jacobian, compiled on first use and shared via the model cache."""
         if "AFunction" not in self._modelEntry:
-            self._modelEntry["AFunction"] = self._lambdify(self.A_sym)
+            self._modelEntry["AFunction"] = self._lambdifyCse(*self.A_cse)
         return self._wrap(self._modelEntry["AFunction"], matrix=True)
 
     # ------------------------------------------------------------------ RMS
@@ -296,36 +309,29 @@ class RLGrid:
         """Compiled RMS model, built on first use and shared via the model cache.
 
         Keys: ``differentialIndices``, ``algebraicIndices``, ``F`` (``F(x, u)``),
-        ``A`` (``dF/dx``), ``B`` (``dF/du``), ``F_sym``.
+        ``A`` (``dF/dx``), ``B`` (``dF/du``), ``F_sym`` and the CSE-form
+        Jacobians ``A_cse`` / ``B_cse`` (see :func:`cseJacobian`).
         """
         differential = tuple(self.getRMSDifferentialIndices())
         key = ("rms", differential)
         if key not in self._modelEntry:
-            from .device import Device
             F = self.getRMSEquationsSym()
-            defaultOnly = all(
-                type(device).getRMSEquationsSym is Device.getRMSEquationsSym
-                for device in self.Vdev + self.Idev
-            )
-            # The default RMS rows differ from f_init_sym only by constants, so
-            # their state Jacobian is the (cached) A_sym.
-            Ax = self.A_sym if defaultOnly else sp.ImmutableMatrix(F.jacobian(self.x))
-            Bu = F.jacobian(self.u) if self.u else sp.zeros(F.rows, 0)
+            # One CSE pass for [dF/dx, dF/du], split afterwards.
+            Ax, Bu = splitColumns(*cseJacobian(F, list(self.x) + list(self.u)), len(self.x))
             self._modelEntry[key] = {
                 "F_sym": sp.ImmutableMatrix(F),
+                "A_cse": Ax, "B_cse": Bu,
                 "FFunction": self._lambdify(F),
-                "AFunction": self._modelEntry.get("AFunction") if defaultOnly else self._lambdify(Ax),
-                "BFunction": self._lambdify(Bu),
+                "AFunction": self._lambdifyCse(*Ax),
+                "BFunction": self._lambdifyCse(*Bu),
             }
-            if self._modelEntry[key]["AFunction"] is None:
-                self.A_core  # compiles and stores AFunction
-                self._modelEntry[key]["AFunction"] = self._modelEntry["AFunction"]
         entry = self._modelEntry[key]
         algebraic = tuple(i for i in range(len(self.x)) if i not in set(differential))
         return {
             "differentialIndices": np.asarray(differential, dtype=int),
             "algebraicIndices": np.asarray(algebraic, dtype=int),
             "F_sym": entry["F_sym"],
+            "A_cse": entry["A_cse"], "B_cse": entry["B_cse"],
             "F": self._wrap(entry["FFunction"]),
             "A": self._wrap(entry["AFunction"], matrix=True),
             "B": self._wrap(entry["BFunction"], matrix=True),
@@ -335,6 +341,11 @@ class RLGrid:
         """Compile an expression; arguments are states, references, then parameters."""
         arguments = list(self.x) + list(self.u) + list(self.parameterMap["parameterSymbols"])
         return sp.lambdify(arguments, expression, modules="numpy", cse=True, docstring_limit=0)
+
+    def _lambdifyCse(self, replacements, expression: sp.Matrix):
+        """Compile a CSE-form expression (see :func:`lambdifyCse`); same arguments as :meth:`_lambdify`."""
+        arguments = list(self.x) + list(self.u) + list(self.parameterMap["parameterSymbols"])
+        return lambdifyCse(arguments, replacements, expression)
 
     def _compile(self, expression: sp.Matrix, matrix: bool = False):
         return self._wrap(self._lambdify(expression), matrix=matrix)

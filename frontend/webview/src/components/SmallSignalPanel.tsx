@@ -1,12 +1,7 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import katex from 'katex';
-import 'katex/dist/katex.min.css';
-import type {
-  SmallSignalMode,
-  SymbolicExpressionDescriptor,
-  SystemSnapshot,
-} from '../model/types';
+import { useMemo } from 'react';
+import type { SmallSignalMode, SystemSnapshot } from '../model/types';
 import { PoleZoomControls, usePolePan, usePoleZoom } from './PoleZoom';
+import { SymbolicModelPanel } from './SymbolicModelPanel';
 
 const width = 820;
 const height = 470;
@@ -37,120 +32,6 @@ function formatNumber(value: number, digits = 4): string {
 function eigenvalue(mode: SmallSignalMode): string {
   const sign = mode.imaginaryPart >= 0 ? '+' : '−';
   return `${formatNumber(mode.realPart)} ${sign} j${formatNumber(Math.abs(mode.imaginaryPart))}`;
-}
-
-// Symbolic matrices of larger systems produce very large KaTeX output, and the
-// panel is re-mounted on every tab switch. Keep the last few renderings.
-const latexCache = new Map<string, string>();
-const latexCacheLimit = 12;
-
-function renderLatex(expression: string): string {
-  const cached = latexCache.get(expression);
-  if (cached !== undefined) {
-    latexCache.delete(expression);
-    latexCache.set(expression, cached);
-    return cached;
-  }
-  const markup = katex.renderToString(expression, {
-    displayMode: true,
-    throwOnError: false,
-    strict: false,
-    maxExpand: 10000,
-  });
-  latexCache.set(expression, markup);
-  if (latexCache.size > latexCacheLimit) {
-    latexCache.delete(latexCache.keys().next().value as string);
-  }
-  return markup;
-}
-
-function LatexExpression({ expression }: { expression: string }) {
-  const markup = useMemo(() => renderLatex(expression), [expression]);
-
-  return (
-    <div
-      className="symbolic-equation-latex"
-      dangerouslySetInnerHTML={{ __html: markup }}
-    />
-  );
-}
-
-/** A <details> block that renders its body only once it has been opened. */
-function LazyDetails({
-  title,
-  initiallyOpen,
-  children,
-}: {
-  title: string;
-  initiallyOpen: boolean;
-  children: () => ReactNode;
-}) {
-  const [opened, setOpened] = useState(initiallyOpen);
-  return (
-    <details
-      className="symbolic-equation"
-      open={initiallyOpen}
-      onToggle={(event) => {
-        if (event.currentTarget.open) {
-          setOpened(true);
-        }
-      }}
-    >
-      <summary>{title}</summary>
-      {opened && children()}
-    </details>
-  );
-}
-
-function SymbolicExpressions({
-  expressions,
-}: {
-  expressions: SymbolicExpressionDescriptor;
-}) {
-  const equations = [
-    {
-      id: 'a-sym',
-      title: 'Symbolic state-space matrix A_sym',
-      expression: String.raw`\mathbf{A}_{\mathrm{sym}} = ${expressions.aSymLatex}`,
-      open: true,
-    },
-    {
-      id: 'f',
-      title: 'State equation f',
-      expression: String.raw`\mathbf{f}(\mathbf{x},\mathbf{u}) = ${expressions.fLatex}`,
-      open: false,
-    },
-    {
-      id: 'g',
-      title: 'Output equation g',
-      expression: String.raw`\mathbf{g}(\mathbf{x},\mathbf{u}) = ${expressions.gLatex}`,
-      open: false,
-    },
-  ];
-
-  return (
-    <section className="symbolic-equations-card">
-      <h2>Symbolic model</h2>
-      <p className="symbolic-equations-description">
-        LaTeX expressions generated directly from RLGrid.A_sym, RLGrid.f and RLGrid.g.
-      </p>
-      <div className="symbolic-equations-list">
-        {equations.map((equation) => (
-          <LazyDetails
-            key={equation.id}
-            title={equation.title}
-            initiallyOpen={equation.open}
-          >
-            {() => (
-              <div className="symbolic-equation-scroll">
-                <LatexExpression expression={equation.expression} />
-              </div>
-            )}
-          </LazyDetails>
-        ))}
-      </div>
-    </section>
-  );
 }
 
 function PoleMap({ modes }: { modes: SmallSignalMode[] }) {
@@ -331,9 +212,7 @@ export function SmallSignalPanel({ snapshot }: { snapshot: SystemSnapshot }) {
             </table>
           </div>
         </section>
-        {result.symbolicExpressions && (
-          <SymbolicExpressions expressions={result.symbolicExpressions} />
-        )}
+        {result.symbolicModel && <SymbolicModelPanel model={result.symbolicModel} />}
       </div>
     </section>
   );

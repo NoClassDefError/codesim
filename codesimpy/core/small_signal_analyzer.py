@@ -8,6 +8,8 @@ import numpy as np
 import sympy as sp
 from scipy.linalg import block_diag, eig
 
+from .symbolic import cseJacobian, lambdifyCse
+
 # Synchronous-frame rotation operator, J v = [-vq, vd].
 _J = np.array([[0.0, -1.0], [1.0, 0.0]])
 
@@ -238,20 +240,22 @@ class SmallSignalAnalyzer:
         cached = self._deviceJacobianCache.get(id(device))
         if cached is not None and cached[0] is device:
             return cached[1]
-        x, u = sp.Matrix(device.x), sp.Matrix(device.u)
         f = sp.Matrix(device.f) if len(device.f) else sp.zeros(0, 1)
         g = sp.Matrix(device.g)
         parameters: list[Any] = []
         for parameter in device.p.values():
             parameters.extend(np.asarray(parameter["sym"], dtype=object).reshape(-1, order="F"))
+        # One CSE Jacobian of [f; g] with respect to [x; u], split into A, B, C, D.
+        stateCount, stateRows = len(device.x), f.rows
+        replacements, jacobian = cseJacobian(
+            list(f) + list(g), list(device.x) + list(device.u),
+        )
         matrices = [
-            f.jacobian(x) if device.n else sp.zeros(0, 0),
-            f.jacobian(u) if device.n else sp.zeros(0, 2),
-            g.jacobian(x) if device.n else sp.zeros(2, 0),
-            g.jacobian(u),
+            jacobian[:stateRows, :stateCount], jacobian[:stateRows, stateCount:],
+            jacobian[stateRows:, :stateCount], jacobian[stateRows:, stateCount:],
         ]
         arguments = list(device.x) + list(device.u) + list(device.uref) + parameters
-        function = sp.lambdify(arguments, matrices, modules="numpy", cse=True, docstring_limit=0)
+        function = lambdifyCse(arguments, replacements, matrices)
 
         def evaluate(*values):
             return [np.asarray(item, dtype=float) for item in function(*values)]

@@ -103,10 +103,62 @@ export interface SmallSignalMode {
   dominantParticipation: number;
 }
 
-export interface SymbolicExpressionDescriptor {
-  aSymLatex: string;
-  fLatex: string;
-  gLatex: string;
+/** A symbol of the symbolic model (state or input). */
+export interface SymbolicSymbolDescriptor {
+  name: string;
+  latex: string;
+}
+
+export interface SymbolicStateDescriptor extends SymbolicSymbolDescriptor {
+  /** Index into `stateBlocks`. */
+  block: number;
+  /** Role of the state in the RMS model. */
+  rms: 'differential' | 'algebraic';
+}
+
+/** A named group of rows/columns (state block of one device, or output group). */
+export interface SymbolicGroupDescriptor {
+  name: string;
+  indices: number[];
+}
+
+export interface SymbolicEquationDescriptor {
+  id: string;
+  label: string;
+  rowGroups: 'states' | 'outputs';
+  /** One row per state/output: `lhs = latex`. */
+  rows: Array<{ lhs: string; latex: string }>;
+}
+
+/** `[row, column, latex, used intermediates]` of one nonzero entry. */
+export type SymbolicJacobianEntry = [number, number, string, number[]];
+
+/** Jacobian in CSE form: nonzero entries written with intermediates `w_k`. */
+export interface SymbolicJacobianDescriptor {
+  id: string;
+  label: string;
+  rowGroups: 'states';
+  columnGroups: 'states' | 'inputs';
+  shape: [number, number];
+  entries: SymbolicJacobianEntry[];
+  intermediates: Array<{ name: string; latex: string; uses: number[] }>;
+}
+
+export interface SymbolicModelVariantDescriptor {
+  id: string;
+  label: string;
+  description: string;
+  equations: SymbolicEquationDescriptor[];
+  jacobians: SymbolicJacobianDescriptor[];
+}
+
+/** Symbolic EMT and RMS models, organised in blocks (see serializeSymbolicModel). */
+export interface SymbolicModelDescriptor {
+  states: SymbolicStateDescriptor[];
+  inputs: SymbolicSymbolDescriptor[];
+  stateBlocks: SymbolicGroupDescriptor[];
+  outputGroups: SymbolicGroupDescriptor[];
+  models: SymbolicModelVariantDescriptor[];
 }
 
 export interface SmallSignalDescriptor {
@@ -115,7 +167,7 @@ export interface SmallSignalDescriptor {
   unstablePoleCount: number;
   poleTolerance: number;
   modes: SmallSignalMode[];
-  symbolicExpressions?: SymbolicExpressionDescriptor;
+  symbolicModel?: SymbolicModelDescriptor;
 }
 
 export interface ComplexValueDescriptor {
@@ -183,42 +235,11 @@ export interface InteractionAnalysisDescriptor {
   };
 }
 
-export interface ComplexTraceDescriptor {
-  real: Array<Array<number | null>>;
-  imaginary: Array<Array<number | null>>;
-  magnitude: Array<Array<number | null>>;
-}
-
-export interface TransientVoltageDescriptor {
-  available: boolean;
-  time_s: number[];
-  sourceSampleCount?: number;
-  sampleIndices?: number[];
-  busNames: string[];
-  requestedSlowStateNames?: string[];
-  slowStateNames: string[];
-  fastStateNames: string[];
-  angleStateName: string;
-  angleRate_rad_s: number[];
-  slowStateRates_per_s: number[][];
-  qssConverged: boolean[];
-  qssResidualNorm: number[];
-  fastJacobianCondition: Array<number | null>;
-  firstOrderAvailable?: boolean[];
-  components: {
-    actual: ComplexTraceDescriptor;
-    qss: ComplexTraceDescriptor;
-    firstOrderError: ComplexTraceDescriptor;
-    firstOrder: ComplexTraceDescriptor;
-    emt: ComplexTraceDescriptor;
-    reconstructed: ComplexTraceDescriptor;
-    reconstructionError: ComplexTraceDescriptor;
-  };
-}
-
 /** RMS (phasor) run and its optional first-order RMS+Δ correction. */
 export interface RMSSimulationDescriptor {
   available: boolean;
+  /** True while an RMS run streams; only `signals` is filled until it completes. */
+  streaming?: boolean;
   model: 'RMS' | 'RMS+Delta';
   simulationTime_s?: number;
   differentialStateNames: string[];
@@ -249,7 +270,6 @@ export interface SystemSnapshot {
   signals: SignalDescriptor[];
   smallSignal?: SmallSignalDescriptor;
   interactionAnalysis?: InteractionAnalysisDescriptor;
-  transientVoltage?: TransientVoltageDescriptor;
   rmsSimulation?: RMSSimulationDescriptor;
   layout?: SnapshotLayout;
 }

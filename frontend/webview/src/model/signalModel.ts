@@ -1,4 +1,23 @@
-import type { SignalDescriptor } from './types';
+import type { RMSSimulationDescriptor, SignalDescriptor } from './types';
+
+const rmsSuffix = ' [RMS]';
+const rmsDeltaSuffix = ' [RMS+Δ]';
+
+/**
+ * RMS signals ready to sit next to the EMT ones. The backend serializes them
+ * with the EMT ids and labels; plain RMS traces get a `-rms` id and `[RMS]`
+ * label suffix here (RMS+Δ traces already carry their own).
+ */
+export function rmsPlotSignals(rms: RMSSimulationDescriptor | undefined): SignalDescriptor[] {
+  if (!rms?.available) {
+    return [];
+  }
+  return rms.signals.map((signal) => (
+    signal.label.endsWith(rmsDeltaSuffix)
+      ? signal
+      : { ...signal, id: `${signal.id}-rms`, label: `${signal.label}${rmsSuffix}` }
+  ));
+}
 
 export interface PlotDefinition {
   id: string;
