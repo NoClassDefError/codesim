@@ -287,6 +287,8 @@
       </div>
       <div class="head-actions">
         <a class="button-link" href="index.html">← GFM current-limiting explainer</a>
+        <a class="button-link" href="components.html">Component reference</a>
+        <a class="button-link" href="systems.html">System reference</a>
         <button type="button" class="theme-toggle" aria-label="Switch between light and dark mode"></button>
       </div>
     </header>
@@ -539,7 +541,7 @@
           <li>Component classes follow <code>Role_Control_Limiter_Filter</code>, e.g. <code>GFM_A_C_LC</code>
             (grid-forming · virtual admittance + current PI · circular limit · LC filter), <code>GFL_C_F_L</code>.
             The codes are listed in the docstring of <code>codesimpy/components/__init__.py</code>.</li>
-          <li>System classes follow <code>Network__Unit__Unit</code>, e.g. <code>SMIB__GFM_A_C_LC</code>,
+          <li>System classes follow <code>Network__Unit__Unit</code>, e.g. <code>SMIB__GFM_A_C_L</code>,
             <code>CIGRE4__GFM_A_C_LC__GFL_C_F_L</code>. The class name is also the name shown in VS Code.</li>
         </ul>
       </section>
@@ -905,7 +907,7 @@ self.nonEditableParameterNames = ("Vbase", "Sbase", "frequency_Hz")</code></pre>
           <li><code>eventName</code>, and read <code>eventTime_s</code> (the detected time; <code>inf</code> if not
             triggered) inside your reference functions to start the recovery.</li>
         </ul>
-        <p><code>SMIB__GFM_A_C_LC</code> with <code>clearMode="angle"</code> is a complete example. The RMS simulation
+        <p><code>SMIB__GFM_A_C_L</code> with <code>clearMode="angle"</code> is a complete example. The RMS simulation
           does not support state-triggered events.</p>
 
         <h3 id="s-signals">4.6 Output signals</h3>

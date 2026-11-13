@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <script>try { const t = localStorage.getItem('gfm-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) { }</script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeSim System Reference</title>
+  <meta name="description" content="Network equations, topology, data, disturbances and parameters of every runnable CodeSim system.">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/contrib/auto-render.min.js"></script>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --text: #172033;
+      --muted: #657087;
+      --border: #d7dee9;
+      --blue: #2f7dd1;
+      --orange: #db9134;
+      --green: #218b70;
+      --purple: #7558be;
+      --code-bg: #f1f4f9;
+      --code-text: #1d2a40;
+      --shadow: 0 14px 40px rgba(31, 52, 78, 0.10);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #111724;
+        --panel: #1a2231;
+        --text: #eef3fb;
+        --muted: #acb7c9;
+        --border: #344055;
+        --blue: #67aaf0;
+        --orange: #f0ad54;
+        --green: #55c2a2;
+        --purple: #a28ae5;
+        --code-bg: #121a28;
+        --code-text: #dbe5f4;
+        --shadow: 0 14px 40px rgba(0, 0, 0, 0.26);
+      }
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #111724;
+      --panel: #1a2231;
+      --text: #eef3fb;
+      --muted: #acb7c9;
+      --border: #344055;
+      --blue: #67aaf0;
+      --orange: #f0ad54;
+      --green: #55c2a2;
+      --purple: #a28ae5;
+      --code-bg: #121a28;
+      --code-text: #dbe5f4;
+      --shadow: 0 14px 40px rgba(0, 0, 0, 0.26);
+    }
+
+    :root[data-theme="light"] { color-scheme: light; }
+    * { box-sizing: border-box; }
+    html { scroll-padding-top: 16px; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, "Segoe UI", system-ui, sans-serif; line-height: 1.6; }
+    a { color: var(--blue); }
+
+    .page { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 28px; width: min(1320px, calc(100% - 32px)); margin: 22px auto 48px; }
+    header.page-head { grid-column: 1 / -1; display: flex; align-items: flex-end; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+    header.page-head h1 { margin: 0; font-size: clamp(24px, 3vw, 34px); line-height: 1.2; }
+    header.page-head p { margin: 6px 0 0; color: var(--muted); max-width: 820px; }
+    .head-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .button-link, .theme-toggle { border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; background: var(--panel); color: var(--text); font: inherit; font-size: 14px; text-decoration: none; cursor: pointer; }
+
+    nav.toc { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow: auto; padding: 14px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); font-size: 14px; }
+    nav.toc strong { display: block; margin: 0 6px 6px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+    nav.toc ol { margin: 0; padding-left: 22px; }
+    nav.toc ol ol { padding-left: 16px; font-size: 13px; }
+    nav.toc li { margin: 2px 0; }
+    nav.toc a { color: var(--text); text-decoration: none; }
+    nav.toc a:hover, nav.toc a.active { color: var(--blue); }
+
+    main.content { min-width: 0; }
+    section.card { margin-bottom: 22px; padding: 22px 26px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); }
+    section.card > h2 { margin-top: 0; font-size: 24px; }
+    h3 { margin: 30px 0 8px; font-size: 19px; padding-top: 14px; border-top: 1px solid var(--border); }
+    h4 { margin: 18px 0 6px; font-size: 15px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    p, li { max-width: 920px; }
+
+    code { font-family: "Cascadia Code", Consolas, "SFMono-Regular", Menlo, monospace; font-size: .92em; padding: 1px 5px; border-radius: 5px; background: var(--code-bg); color: var(--code-text); }
+    pre.oneline { margin: 12px 0 18px; padding: 14px 16px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--code-bg); color: var(--code-text); font-family: "Cascadia Code", Consolas, monospace; font-size: 13px; line-height: 1.45; }
+
+    .badges { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 10px; }
+    .badge { font-size: 12.5px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+
+    .callout { margin: 14px 0; padding: 12px 16px; border-left: 4px solid var(--blue); border-radius: 8px; background: color-mix(in srgb, var(--blue) 9%, transparent); }
+    .callout.warn { border-left-color: var(--orange); background: color-mix(in srgb, var(--orange) 10%, transparent); }
+    .callout > :first-child { margin-top: 0; }
+    .callout > :last-child { margin-bottom: 0; }
+
+    .table-wrap { overflow-x: auto; margin: 10px 0 18px; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    th, td { padding: 6px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+    td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+    .eq { overflow-x: auto; overflow-y: hidden; margin: 8px 0 14px; padding: 4px 0; }
+    .katex-display { margin: .6em 0; }
+
+    @media (max-width: 900px) {
+      .page { grid-template-columns: minmax(0, 1fr); width: calc(100% - 24px); }
+      nav.toc { position: static; max-height: none; }
+      section.card { padding: 18px 16px; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="page">
+    <header class="page-head">
+      <div>
+        <h1>System reference</h1>
+        <p>How CodeSim assembles devices into a network, and every runnable system in
+          <code>codesimpy/systems</code>: topology, network data, devices and their settings, references,
+          disturbances and fault-clearing logic. Device equations are on the
+          <a href="components.html">component reference</a>.</p>
+      </div>
+      <div class="head-actions">
+        <a class="button-link" href="components.html">← Component reference</a>
+        <a class="button-link" href="building-models.html">Model-building guide</a>
+        <button type="button" class="theme-toggle" aria-label="Switch between light and dark mode"></button>
+      </div>
+    </header>
+
+    <nav class="toc" aria-label="Contents">
+      <strong>Contents</strong>
+      <ol>
+        <li><a href="#network">Network model</a>
+          <ol>
+            <li><a href="#rlgrid">Branch and bus equations</a></li>
+            <li><a href="#kron">Passive buses</a></li>
+            <li><a href="#pf">Power flow and initialization</a></li>
+            <li><a href="#faults">Disturbances and clearing</a></li>
+            <li><a href="#list">System list</a></li>
+          </ol>
+        </li>
+        <li><a href="#smib">SMIB</a>
+          <ol>
+            <li><a href="#smib-gfm-acl">SMIB__GFM_A_C_L</a></li>
+            <li><a href="#smib-gfl-l">SMIB__GFL_C_F_L</a></li>
+            <li><a href="#smib-sg">SMIB__SG</a></li>
+          </ol>
+        </li>
+        <li><a href="#cigre14">CIGRE14</a></li>
+        <li><a href="#cigre4">CIGRE4</a>
+          <ol>
+            <li><a href="#c4-reduction">Reduced corridor</a></li>
+            <li><a href="#c4-acl-lc">GFM_A_C_LC + GFL_C_F_L</a></li>
+          </ol>
+        </li>
+      </ol>
+    </nav>
+
+    <main class="content">
+
+      <!-- ============================================================ NETWORK -->
+      <section class="card" id="network">
+        <h2>1. Network model</h2>
+        <p>Every system is a <code>System</code> subclass that builds a list of devices and an RL network and hands
+          them to <code>RLGrid</code>. Units, frames and port conventions are those of the
+          <a href="components.html#conventions">component reference</a>: per unit of the system base,
+          normalized time \(\tau=\omega_b t\), stationary \(\alpha\beta\) frame, generator convention.</p>
+
+        <h3 id="rlgrid">1.1 Branch and bus equations</h3>
+        <p>The network has \(n\) buses and \(b\) series RL branches. The incidence matrix \(\mathbf A\in\mathbb R^{n\times b}\)
+          has \(A_{mk}=+1\) at the bus where branch \(k\) leaves and \(-1\) where it enters. Each bus \(m\) holds
+          exactly one voltage port \(V_m\) and one current port \(I_m\). The branch currents are the first \(2b\) states
+          (<code>iga1, igb1, …</code>), followed bus by bus by the states of \(V_m\) and \(I_m\).</p>
+        <div class="eq">$$
+          \begin{aligned}
+            \mathbf v_m &= \mathbf g_{V_m}\!\left(\mathbf x_{V_m}\right) &&\text{bus voltage from the voltage port}\\
+            \mathbf i^{I}_m &= \mathbf g_{I_m}\!\left(\mathbf x_{I_m},\mathbf v_m\right) &&\text{current-port injection}\\
+            L_k\,\dot{\mathbf i}_k &= \sum_m A_{mk}\,\mathbf v_m-R_k\,\mathbf i_k &&\text{branch }k\;(\alpha\beta)\\
+            \mathbf i^{V}_m &= \sum_k A_{mk}\,\mathbf i_k-\mathbf i^{I}_m &&\text{current delivered by the voltage port}
+          \end{aligned}
+        $$</div>
+        <p>so each voltage port supplies whatever its bus sends into the branches minus what the current port injects
+          (KCL), and its state equations receive \(\mathbf i^{V}_m\). In compact form, with
+          \(\bar{\mathbf A}=\mathbf A\otimes\mathbf I_2\), \(\dot{\mathbf i}_b=\mathbf L^{-1}(\bar{\mathbf A}^{\top}\mathbf v-\mathbf R\,\mathbf i_b)\).
+          Since the frame is stationary, the branches carry no \(\omega L\mathbf J\) terms. When a device base
+          \((V_b,S_b)\) differs from the system base, its port input and output are scaled by
+          \(V_b/V_{b,sys}\) and \(I_b/I_{b,sys}\) (<code>Inputscale</code>, <code>Outputscale</code>).</p>
+        <p>The output vector of the grid is \([\mathbf i_b;\mathbf v;\mathbf i^{I}]\), from which
+          <code>calculateNetworkSignals</code> derives the bus injections \(\bar{\mathbf A}\mathbf i_b\), the bus
+          powers \(\underline v_m(\sum_k A_{mk}\underline i_k)^{*}\) and the device powers.</p>
+
+        <h3 id="kron">1.2 Passive buses</h3>
+        <p>A bus with <code>None</code> as both its voltage and current device is removed by Kron reduction before the
+          model is built: a degree-2 bus merges its two branches in series
+          (\(R=R_1+R_2\), \(L=L_1+L_2\)); a bus of degree \(d\gt 2\) is replaced by a mesh between its neighbours
+          (star–mesh), \(Z_{ij}=Z_iZ_j\sum_k Z_k^{-1}\), split into \(R=\operatorname{Re}Z_{ij}\),
+          \(L=\operatorname{Im}Z_{ij}\).</p>
+
+        <h3 id="pf">1.3 Power flow and initialization</h3>
+        <p>The unknowns are every bus voltage \(V_m\angle\theta_m\) and the \(P_d, Q_d\) of every device. The
+          equations are the bus balances and two device equations each
+          (<a href="components.html#init">component reference</a>):</p>
+        <div class="eq">$$
+          \mathbf Y=\mathbf A\,\operatorname{diag}\!\left(\frac{1}{R_k+jL_k}\right)\mathbf A^{\top},\qquad
+          \underline V_m\left(\mathbf Y\underline{\mathbf V}\right)_m^{*}=\sum_{d\in m}\left(P_d+jQ_d\right),\qquad
+          F_d(P_d,Q_d,V_m,\theta_m)=0 .
+        $$</div>
+        <p>They are solved from a flat start with <code>scipy.optimize.root</code> (hybrid method). Branch currents
+          are then \((\underline V_{from}-\underline V_{to})/(R_k+jL_k)\), each device builds its initial guess, and
+          the steady state is refined by least squares on \(\mathbf f_{\text{init}}(\mathbf x)=\mathbf 0\) (every state
+          equation except the frame angles). The system raises an error if either residual exceeds
+          <code>residualTolerance</code>.</p>
+
+        <h3 id="faults">1.4 Disturbances and clearing</h3>
+        <p>All systems are disturbed through the amplitude reference \(A_{ref}(t)\) of the infinite bus. Two schemes
+          are used.</p>
+        <h4>Time-based profile</h4>
+        <p>Piecewise-linear through the breakpoints (used by every system in <code>"time"</code> mode):</p>
+        <div class="eq">$$
+          A_{ref}(t)=\operatorname{interp}\Big(t;\;
+          \big(0,1\big),\big(t_{fs},1\big),\big(t_{fc},V_f\big),\big(t_{rs},V_f\big),\big(t_{rc},1\big)\Big),
+        $$</div>
+        <p>with \(t_{fs}\)=<code>faultStart_s</code>, \(t_{fc}\)=<code>faultComplete_s</code>,
+          \(t_{rs}\)=<code>recoveryStart_s</code>, \(t_{rc}\)=<code>recoveryComplete_s</code>,
+          \(V_f\)=<code>faultVoltage</code>. The breakpoints are passed to the integrator so it restarts at each kink.</p>
+        <h4>Angle-based clearing</h4>
+        <p>With <code>clearMode = "angle"</code> the fault is cleared when the GFM load angle reaches a target, found
+          by the integrator's event detection after an eligibility time; the detected time \(t_{clr}\) is stored as
+          <code>eventTime_s</code> and returned as <code>clearingTime_s</code>.</p>
+        <div class="table-wrap"><table>
+          <tr><th>Family</th><th>Event function \(h(\mathbf x)\)</th><th>Direction</th><th>Eligible from</th><th>Voltage after detection</th></tr>
+          <tr><td>SMIB GFMs</td><td>\(\sin\!\big((x_{clr}-\theta_{clr})/2\big)\), \(x_{clr}\) = <code>clearingState</code> (default \(\delta\)), \(\theta_{clr}\) = <code>clearAngle_rad</code></td><td>either</td><td>\(t_{fs}\) + <code>minimumFaultDuration_s</code></td><td>ramps back to 1 over \(t_{rc}-t_{rs}\)</td></tr>
+          <tr><td>CIGRE14 / CIGRE4</td><td>\(0\) if \(\delta_w\in(\theta_{lo},\theta_{up})\), else \(\min(\delta_w-\theta_{lo},\theta_{up}-\delta_w)\); \(\delta_w\) = \(\delta\) wrapped to \((-\pi,\pi]\)</td><td>rising</td><td><code>angleClearEligible_s</code></td><td>steps back to 1</td></tr>
+        </table></div>
+        <p>For the SMIB GFMs the reference is
+          \(A_{ref}=1-(1-V_f)\,\operatorname{clip}\!\big(\tfrac{t-t_{fs}}{t_{fc}-t_{fs}},0,1\big)+(1-V_f)\,\operatorname{clip}\!\big(\tfrac{t-t_{clr}}{t_{rc}-t_{rs}},0,1\big)\)
+          with \(t_{clr}=t_{rs}\) in time mode. For CIGRE in angle mode, \(A_{ref}=V_f\) for
+          \(t_{fs}\le t\lt t_{clr}\) and 1 otherwise, with defaults \(t_{fs}=0.2\) s, \(V_f=0\), window
+          \((-\pi/3,0)\), eligible from 0.25 s.</p>
+
+        <h3 id="list">1.5 System list</h3>
+        <div class="table-wrap"><table>
+          <tr><th>System</th><th>Buses (after reduction)</th><th>States</th><th>Units</th></tr>
+          <tr><td><a href="#smib-gfm-acl"><code>SMIB__GFM_A_C_L</code></a></td><td class="num">1</td><td class="num">10</td><td>GFM, embedded grid branch</td></tr>
+          <tr><td><a href="#smib-gfl-l"><code>SMIB__GFL_C_F_L</code></a></td><td class="num">1</td><td class="num">8</td><td>GFL, embedded grid impedance</td></tr>
+          <tr><td><a href="#smib-sg"><code>SMIB__SG</code></a></td><td class="num">2</td><td class="num">15</td><td>synchronous generator + capacitor</td></tr>
+          <tr><td><a href="#cigre14"><code>CIGRE14__GFM_A_C_LC__GFL_C_F_L</code></a></td><td class="num">13</td><td class="num">92</td><td>GFM bus 9, GFL bus 7</td></tr>
+          <tr><td><a href="#c4-acl-lc"><code>CIGRE4__GFM_A_C_LC__GFL_C_F_L</code></a></td><td class="num">4</td><td class="num">30</td><td>GFM bus 9, GFL bus 7</td></tr>
+        </table></div>
+      </section>
+
+      <!-- ============================================================ SMIB -->
+      <section class="card" id="smib">
+        <h2>2. SMIB — single unit on an infinite bus</h2>
+        <p>All SMIB systems use one infinite bus behind a grid impedance set by the short-circuit ratio and the R/X
+          ratio \(\rho\) (on the unit base \(S_b = 8100\) VA, \(V_b = 1\)):</p>
+        <div class="eq">$$ L_g=\frac{1}{\mathrm{SCR}\sqrt{1+\rho^2}},\qquad R_g=\rho\,L_g,\qquad |R_g+jL_g|=\frac{1}{\mathrm{SCR}} . $$</div>
+        <p>Depending on the unit, the grid impedance is either a network branch (<code>SMIB__SG</code>, whose
+          terminal capacitor is a voltage port) or embedded in the unit (the unit is a current port and the network is
+          a single bus with no branches).</p>
+
+        <h3 id="smib-gfm-acl">2.1 SMIB__GFM_A_C_L</h3>
+        <div class="badges"><span class="badge">systems/smib_gfm_a_c_l.py</span></div>
+        <p><a href="components.html#GFM_A_C_L">GFM_A_C_L</a> has no capacitor, so it is a current port with
+          \(R_g+jL_g\) embedded; the network is a single bus with no branch.</p>
+        <pre class="oneline">bus 1 "Infinite bus":  Infbus (V-port)  +  GFM_A_C_L (I-port, embeds Rg + jLg)</pre>
+        <h4>Parameters</h4>
+        <div class="table-wrap"><table>
+          <tr><th>Name</th><th>Default</th><th>Meaning</th></tr>
+          <tr><td><code>SCR</code>, <code>rho</code></td><td class="num">2, 0.1</td><td>grid strength and R/X (\(L_g=0.4975\), \(R_g=0.0498\))</td></tr>
+          <tr><td><code>Pref</code>, <code>Vref</code>, <code>wref</code></td><td class="num">1, 1.1, 1</td><td>GFM references</td></tr>
+          <tr><td><code>Lf</code>, <code>Rv</code>, <code>Lv</code></td><td class="num">0.07, 0.05, 0.01</td><td>filter and virtual impedance (override the device)</td></tr>
+          <tr><td><code>Imax</code>, <code>Kp</code>, <code>Kp_cc</code>, <code>Ki_cc</code></td><td class="num">1.5, 0.05, 20, 5</td><td>current limit, droop, current PI</td></tr>
+          <tr><td><code>clearMode</code></td><td><code>"time"</code></td><td><code>"time"</code> or <code>"angle"</code></td></tr>
+          <tr><td><code>faultStart_s</code>, <code>faultComplete_s</code></td><td class="num">0.2, 0.201</td><td>fault ramp</td></tr>
+          <tr><td><code>recoveryStart_s</code>, <code>recoveryComplete_s</code></td><td class="num">1.0, 1.001</td><td>recovery ramp (time mode)</td></tr>
+          <tr><td><code>faultVoltage</code></td><td class="num">0.5</td><td>residual voltage</td></tr>
+          <tr><td><code>clearAngle_rad</code>, <code>clearingState</code>, <code>minimumFaultDuration_s</code></td><td class="num">−π/3, delta, 0.5</td><td>angle clearing</td></tr>
+          <tr><td><code>validationTime_s</code>, <code>outputStep_s</code></td><td class="num">2, 1e-4</td><td>run length and output step</td></tr>
+        </table></div>
+        <p>Solver: RK45, rtol 1e-3, atol 1e-5, maximum step \(5\times10^{-3}/\omega_b\). The reported PCC voltage is
+          the reconstructed \(\mathbf v_{pcc}=\mathbf d+L_g\dot{\mathbf i}\) of the device.</p>
+
+        <h3 id="smib-gfl-l">2.2 SMIB__GFL_C_F_L</h3>
+        <div class="badges"><span class="badge">systems/smib_gfl_c_f_l.py</span></div>
+        <p>LVRT benchmark: <a href="components.html#GFL_C_F_L">GFL_C_F_L</a> with the grid impedance embedded
+          (its PLL measures the reconstructed terminal voltage), on a single infinite bus.</p>
+        <pre class="oneline">bus 1 "PCC / Infinite bus":  Infbus (V-port)  +  GFL_C_F_L (I-port, embeds Rg + jω0Lg)</pre>
+        <div class="table-wrap"><table>
+          <tr><th>Name</th><th>Default</th><th>Meaning</th></tr>
+          <tr><td><code>SCR</code>, <code>rho</code></td><td class="num">2, 0.25</td><td>\(L_g=0.4851\), \(R_g=0.1213\)</td></tr>
+          <tr><td><code>Pref</code>, <code>Qref</code></td><td class="num">1, 0.1</td><td>used directly as \(I_{d,ref}\), \(I_{q,ref}\)</td></tr>
+          <tr><td><code>K1</code>, <code>Id2</code></td><td class="num">1, 1.0</td><td>FRT gain and active current</td></tr>
+          <tr><td>device overrides</td><td class="num">KpPll = KiPll = 0.2</td><td></td></tr>
+          <tr><td>fault</td><td class="num">0.3→0.301 to 0.5; 0.6→0.601 back to 1</td><td>time profile</td></tr>
+          <tr><td><code>validationTime_s</code>, <code>outputStep_s</code></td><td class="num">1, 1e-4</td><td></td></tr>
+        </table></div>
+        <p>Solver: DOP853, rtol 1e-3, atol 1e-5, max step \(5\times10^{-3}/\omega_b\). Signals include the
+          reconstructed \(v_d,v_q\), P, Q, the FRT blend \(m\), the FRT current references, the raw and limited PLL
+          frequency and the PLL angle error \(\theta-\theta_{grid}\).</p>
+
+        <h3 id="smib-sg">2.3 SMIB__SG</h3>
+        <div class="badges"><span class="badge">systems/smib_sg.py</span></div>
+        <p><a href="components.html#SG">Synchronous generator</a> with a terminal capacitor (default
+          \(C=0.068\)) on an infinite bus.</p>
+        <pre class="oneline">[Capacitor + SG]  bus 1 "SG PCC" ──── Rg + jLg ──── bus 2 "Infinite bus"  [Infbus + ZeroCurrent]</pre>
+        <div class="table-wrap"><table>
+          <tr><th>Name</th><th>Default</th><th>Meaning</th></tr>
+          <tr><td><code>SCR</code>, <code>rho</code></td><td class="num">2, 0.25</td><td>grid impedance</td></tr>
+          <tr><td><code>Ka</code>, <code>Vf0</code></td><td class="num">0.5, 1.0</td><td>AVR gain, field offset (override the device)</td></tr>
+          <tr><td><code>Vdref</code></td><td class="num">1.2812</td><td>AVR set point; \(P_{ref}=0\), \(V_{q,ref}=0\), \(\omega_{ref}=1\)</td></tr>
+          <tr><td>fault</td><td class="num">0.10→0.101 to 0.2; 0.20→0.201 back</td><td>time profile</td></tr>
+          <tr><td><code>validationTime_s</code>, <code>outputStep_s</code>, <code>residualTolerance</code></td><td class="num">0.4, 2e-3, 1e-7</td><td></td></tr>
+        </table></div>
+        <p><strong>Initialization.</strong> This system overrides <code>initialize</code>: it skips the power flow
+          and solves, by least squares from \(\mathbf x=\mathbf 1\), every state equation except the angles together
+          with \(\omega_{SG}=\omega_0\):</p>
+        <div class="eq">$$ \min_{\mathbf x}\;\left\|\big[\,\mathbf f_{\neg\theta}(\mathbf x,\mathbf u_{ref}),\;\omega_{SG}-\omega_0\,\big]\right\|_2 . $$</div>
+      </section>
+
+      <!-- ============================================================ CIGRE14 -->
+      <section class="card" id="cigre14">
+        <h2>3. CIGRE14 — full CIGRE MV feeder</h2>
+        <div class="badges"><span class="badge">systems/cigre14.py</span><span class="badge">base class _CIGRE14</span></div>
+        <p><code>CIGRE14__GFM_A_C_LC__GFL_C_F_L</code>: the CIGRE
+          medium-voltage benchmark feeder (buses 1–11) fed from an infinite bus, with a GFM at bus 9 and a GFL at bus 7.
+          System base \(S_b=25\) MVA, \(V_{LL}=20\) kV, 50 Hz; GFM base 5 MVA; GFL base 1.5 MVA.</p>
+        <pre class="oneline">source ─ 1 ─ 2 ─ 3 ─ 4 ─ 5 ─ 6
+                   └ 8 ─ 9 ─ 10 ─ 11        GFM_A_C_LC at 9,  GFL at 7
+                     └ 7                     loads: RL branches from 1, 3…11 to "ground"</pre>
+        <h4>Network</h4>
+        <p>Lines are series RL branches; each line's charging capacitance is split half to each end and lumped as a
+          <a href="components.html#Capacitor">Capacitor</a> voltage port at every bus (with a ZeroCurrent current
+          port). Loads are series RL branches from their bus to a node <code>ground</code> held at zero by a second
+          Infbus with \(A_{ref}=0\). The source bus holds the Infbus that carries the fault. Bus 9 has the GFM as its
+          voltage port, with the bus-9 line capacitance as the GFM capacitor (converted to GFM base,
+          \(C=C_9\cdot S_b/S_{b,GFM}\)); bus 7 has the GFL as current port next to its line capacitor.</p>
+        <div class="table-wrap"><table>
+          <tr><th>Branch</th><th>R (pu)</th><th>L (pu)</th><th>C (pu)</th><th>Branch</th><th>R (pu)</th><th>L (pu)</th><th>C (pu)</th></tr>
+          <tr><td>source–1</td><td class="num">0.0014975</td><td class="num">0.1249752</td><td class="num">0</td><td>5–6</td><td class="num">0.0482213</td><td class="num">0.068915</td><td class="num">0.0011702</td></tr>
+          <tr><td>1–2</td><td class="num">0.0883013</td><td class="num">0.126195</td><td class="num">0.0021429</td><td>7–8</td><td class="num">0.0522919</td><td class="num">0.0747325</td><td class="num">0.0012690</td></tr>
+          <tr><td>2–3</td><td class="num">0.1384013</td><td class="num">0.197795</td><td class="num">0.0033587</td><td>8–9</td><td class="num">0.01002</td><td class="num">0.01432</td><td class="num">0.0002432</td></tr>
+          <tr><td>3–4</td><td class="num">0.0191006</td><td class="num">0.0272975</td><td class="num">0.0004635</td><td>9–10</td><td class="num">0.0241106</td><td class="num">0.0344575</td><td class="num">0.0005851</td></tr>
+          <tr><td>3–8</td><td class="num">0.0407063</td><td class="num">0.058175</td><td class="num">0.0009879</td><td>10–11</td><td class="num">0.0103331</td><td class="num">0.0147675</td><td class="num">0.0002508</td></tr>
+          <tr><td>4–5</td><td class="num">0.017535</td><td class="num">0.02506</td><td class="num">0.0004255</td><td></td><td></td><td></td><td></td></tr>
+        </table></div>
+        <div class="table-wrap"><table>
+          <tr><th>Load bus</th><th>R (pu)</th><th>L (pu)</th><th>Load bus</th><th>R (pu)</th><th>L (pu)</th></tr>
+          <tr><td>1</td><td class="num">1.19486</td><td class="num">0.27929</td><td>7</td><td class="num">236.111</td><td class="num">146.329</td></tr>
+          <tr><td>3</td><td class="num">42.4688</td><td class="num">17.6818</td><td>8</td><td class="num">40.0826</td><td class="num">10.0457</td></tr>
+          <tr><td>4</td><td class="num">54.4944</td><td class="num">13.6576</td><td>9</td><td class="num">31.4815</td><td class="num">19.5105</td></tr>
+          <tr><td>5</td><td class="num">32.3333</td><td class="num">8.10350</td><td>10</td><td class="num">42.2892</td><td class="num">12.5524</td></tr>
+          <tr><td>6</td><td class="num">42.9204</td><td class="num">10.7569</td><td>11</td><td class="num">71.3235</td><td class="num">17.8754</td></tr>
+        </table></div>
+        <h4>Units</h4>
+        <ul>
+          <li><strong>GFM at bus 9</strong>: <a href="components.html#GFM_A_C_LC">GFM_A_C_LC</a> with
+            \(L_v=0.3\), \(R_v=0.1\), \(L_f=0.07\), \(I_{max}=1.5\), \(K_p=0.05\), \(K_{p,cc}=20\), \(K_{i,cc}=5\);
+            references <code>VSGPref</code> 1, <code>VSGVref</code> 1.1, <code>VSGwref</code> 1.</li>
+          <li><strong>GFL at bus 7</strong> (<code>buildGFL</code>): <a href="components.html#GFL_C_F_L">GFL_C_F_L</a> with <code>GFLLf</code> 0.07, <code>GFLKpCc</code> 0.3,
+            <code>GFLKiCc</code> 1, <code>GFLKpPll</code> 0.2, <code>GFLKiPll</code> 0.02;
+            <code>GFLPref</code> 1, <code>GFLQref</code> 0. The references are
+            \(I_{d,ref}=\)<code>GFLPref</code>, \(I_{q,ref}=-\)<code>GFLQref</code> (so \(Q=V\cdot\)<code>GFLQref</code>).
+            Optional <code>GFLVth</code>, <code>GFLK1</code>, <code>GFLId2</code>, <code>GFLImax</code>.</li>
+        </ul>
+        <h4>Disturbance</h4>
+        <div class="table-wrap"><table>
+          <tr><th>Name</th><th>Default (time)</th><th>Default (angle)</th></tr>
+          <tr><td><code>faultStart_s</code>, <code>faultComplete_s</code></td><td class="num">0.10, 0.101</td><td class="num">0.20, 0.201</td></tr>
+          <tr><td><code>faultVoltage</code></td><td class="num">0.1</td><td class="num">0</td></tr>
+          <tr><td><code>recoveryStart_s</code>, <code>recoveryComplete_s</code></td><td class="num">0.25, 0.2501</td><td>–</td></tr>
+          <tr><td><code>angleClearEligible_s</code>, window</td><td>–</td><td class="num">0.25, (−π/3, 0)</td></tr>
+          <tr><td><code>validationTime_s</code>, <code>outputStep_s</code></td><td class="num">1, 1e-4</td><td class="num">1, 1e-4</td></tr>
+        </table></div>
+        <p>Solver: DOP853, rtol 1e-3, atol 1e-5, max step \(5\times10^{-3}/\omega_b\).</p>
+      </section>
+
+      <!-- ============================================================ CIGRE4 -->
+      <section class="card" id="cigre4">
+        <h2>4. CIGRE4 — four-node reduction</h2>
+
+        <h3 id="c4-reduction">4.1 Reduced corridor</h3>
+        <p><code>_CIGRE4GFMAdmittance.buildReducedNetwork</code> keeps buses 7, 8 and 9 of the CIGRE feeder and
+          replaces everything upstream of bus 8 by the infinite bus behind one equivalent branch, the series sum of
+          source–1–2–3–8. All loads and the other laterals are omitted.</p>
+        <pre class="oneline">Infinite bus ── Z_up ── 8 ── Z_78 ── 7
+                        │
+                        └── Z_89 ── 9</pre>
+        <div class="table-wrap"><table>
+          <tr><th>Branch</th><th>R (pu)</th><th>L (pu)</th><th>R/X</th><th>C (pu)</th></tr>
+          <tr><td>upstream (source–8)</td><td class="num">0.268906</td><td class="num">0.507140</td><td class="num">0.5302</td><td class="num">0.006489</td></tr>
+          <tr><td>7–8</td><td class="num">0.052292</td><td class="num">0.074733</td><td class="num">0.6997</td><td class="num">0.001269</td></tr>
+          <tr><td>8–9</td><td class="num">0.010020</td><td class="num">0.014320</td><td class="num">0.6997</td><td class="num">0.000243</td></tr>
+        </table></div>
+        <p>Bus line-charging capacitances (half of each adjacent line): bus 7 0.000635, bus 8 0.004001, bus 9 0.000122
+          (system base 25 MVA). Two options reshape the upstream equivalent \(Z_{up}=R+jL\):</p>
+        <div class="eq">$$
+          \texttt{gridImpedanceScale}=s:\;(R,L)\to(sR,\,sL);\qquad
+          \texttt{gridRX}=\rho:\;L=\frac{|Z_{up}|}{\sqrt{1+\rho^2}},\;R=\rho L\;\text{(same }|Z_{up}|\text{)}.
+        $$</div>
+        <p>Common parameters of the CIGRE4 systems are those of <a href="#cigre14">CIGRE14</a> (bases, GFL settings,
+          references, fault), with max step <code>maximumStep_tau</code>\(/\omega_b\) = \(2\times10^{-3}/\omega_b\).</p>
+
+        <h3 id="c4-acl-lc">4.2 CIGRE4__GFM_A_C_LC__GFL_C_F_L</h3>
+        <div class="badges"><span class="badge">systems/cigre4_gfm_a_c_lc.py</span></div>
+        <p>The four buses of 4.1 with the CIGRE14 units: <a href="components.html#GFM_A_C_LC">GFM_A_C_LC</a> as the
+          voltage port of bus 9 (its capacitor is the bus-9 line capacitance, no extra filter capacitor) and
+          <a href="components.html#GFL_C_F_L">GFL_C_F_L</a> at bus 7 next to the bus-7 line capacitor; bus 8 has its
+          line capacitor. This is the p261030 tier-A benchmark. Options <code>gridImpedanceScale</code> (default 1)
+          and <code>gridRX</code> (default None) reshape the upstream equivalent as in 4.1.</p>
+      </section>
+
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const button = document.querySelector('.theme-toggle');
+      const root = document.documentElement;
+      const current = () => root.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      const label = () => { button.textContent = current() === 'dark' ? '☀ Light' : '☾ Dark'; };
+      button.addEventListener('click', () => {
+        const next = current() === 'dark' ? 'light' : 'dark';
+        root.dataset.theme = next;
+        try { localStorage.setItem('gfm-theme', next); } catch (e) { }
+        label();
+      });
+      label();
+
+      const links = new Map([...document.querySelectorAll('nav.toc a')].map((link) => [link.getAttribute('href').slice(1), link]));
+      const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && links.has(entry.target.id)) {
+            links.forEach((link) => link.classList.remove('active'));
+            links.get(entry.target.id).classList.add('active');
+          }
+        }
+      }, { rootMargin: '0px 0px -70% 0px' });
+      links.forEach((_, id) => { const target = document.getElementById(id); if (target) observer.observe(target); });
+    })();
+    window.addEventListener('DOMContentLoaded', () => {
+      if (window.renderMathInElement) {
+        renderMathInElement(document.body, {
+          delimiters: [{ left: '$$', right: '$$', display: true }, { left: '\\(', right: '\\)', display: false }],
+          throwOnError: false,
+        });
+      }
+    });
+  </script>
+</body>
+
+</html>

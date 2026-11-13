@@ -1,12 +1,12 @@
-"""CIGRE14__GFM_A_C_LC__GFL_P_F_L, CIGRE14__GFM_A_C_LC__GFL_C_F_L: full CIGRE MV feeder with converters at buses 7 and 9."""
+"""CIGRE14__GFM_A_C_LC__GFL_C_F_L: full CIGRE MV feeder with converters at buses 7 and 9."""
 
 import numpy as np
 
-from ..components import Capacitor, GFL_C_F_L, GFL_P_F_L, GFM_A_C_LC, Infbus, ZeroCurrent
+from ..components import Capacitor, GFL_C_F_L, GFM_A_C_LC, Infbus, ZeroCurrent
 from ..core import System
 
-def buildGFL(p, index, deviceClass):
-    """GFL at bus 7 of class ``GFL_P_F_L`` (P/Q outer loops) or ``GFL_C_F_L``.
+def buildGFL(p, index, deviceClass=GFL_C_F_L):
+    """GFL at bus 7 of class ``GFL_C_F_L``.
 
     ``GFL_C_F_L`` takes current references directly. ``GFLPref`` is
     then the d-axis current and ``GFLQref`` the reactive current
@@ -24,13 +24,12 @@ def buildGFL(p, index, deviceClass):
         if sourceName in p and targetName in gfl.p:
             gfl.p[targetName]["num"] = p[sourceName]
     Pref, Qref = p.get("GFLPref", 1), p.get("GFLQref", 0)
-    references = (Pref, Qref) if deviceClass is GFL_P_F_L else (Pref, -Qref)
-    return gfl, references
+    return gfl, (Pref, -Qref)
 
 
 class _CIGRE14(System):
     """Full CIGRE MV feeder; the GFL class is ``GFL`` (set by the public classes below)."""
-    GFL = GFL_P_F_L
+    GFL = GFL_C_F_L
 
     @staticmethod
     def defaultParameters(overrides=None):
@@ -190,13 +189,8 @@ class _CIGRE14(System):
         return signals
 
 
-class CIGRE14__GFM_A_C_LC__GFL_P_F_L(_CIGRE14):
-    """CIGRE14 · GFM_A_C_LC at bus 9 (virtual admittance + current PI, circular current-reference limit; its
-    capacitor is the bus-9 line capacitance) + GFL_P_F_L at bus 7 (outer P/Q loops, FRT current priority, no
-    filter capacitor). Full feeder with loads and line capacitances."""
-    GFL = GFL_P_F_L
-
-
 class CIGRE14__GFM_A_C_LC__GFL_C_F_L(_CIGRE14):
-    """CIGRE14 · as ``CIGRE14__GFM_A_C_LC__GFL_P_F_L`` with GFL_C_F_L at bus 7 (current references, no outer loop)."""
+    """CIGRE14 · GFM_A_C_LC at bus 9 (virtual admittance + current PI, circular current-reference limit; its
+    capacitor is the bus-9 line capacitance) + GFL_C_F_L at bus 7 (current references, FRT current priority, no
+    outer loop, no filter capacitor). Full feeder with loads and line capacitances."""
     GFL = GFL_C_F_L

@@ -1,8 +1,8 @@
-"""CIGRE4__GFM_A_C_LC__GFL_C_F_L, CIGRE4__GFM_A_C_LC__GFL_P_F_L: four-node reduction of the CIGRE MV feeder."""
+"""CIGRE4__GFM_A_C_LC__GFL_C_F_L: four-node reduction of the CIGRE MV feeder."""
 
 import numpy as np
 
-from ..components import Capacitor, GFL_C_F_L, GFL_P_F_L, GFM_A_C_LC, Infbus, ZeroCurrent
+from ..components import Capacitor, GFL_C_F_L, GFM_A_C_LC, Infbus, ZeroCurrent
 from ..core import System
 from .cigre14 import _CIGRE14, buildGFL
 
@@ -87,13 +87,7 @@ class _CIGRE4GFMAdmittance(System):
         )
         self.parameters, self.parameterNames = p, list(p)
         self.busCapacitance = busCapacitance
-        # These outer power-loop integrators evolve on the same slow manifold
-        # as the selected PLL integrator. Treating them as fast forces P and Q
-        # to recover instantaneously after LVRT/current limiting and can remove
-        # the conditional equilibrium altogether.
-        self.qssRequiredSlowStateNames = [
-            str(gfl.x[4]), str(gfl.x[5]),
-        ] if self.GFL is GFL_P_F_L else []
+        self.qssRequiredSlowStateNames = []
         self.eventName = "faultClearing"
         self.eventDirection = 1
         self.eventTime_s = clearingTime_s
@@ -155,7 +149,3 @@ class CIGRE4__GFM_A_C_LC__GFL_C_F_L(_CIGRE4GFMAdmittance):
     references, FRT current priority; bus-7 line capacitance only). The p261030 tier-A benchmark."""
     GFL = GFL_C_F_L
 
-
-class CIGRE4__GFM_A_C_LC__GFL_P_F_L(_CIGRE4GFMAdmittance):
-    """CIGRE4 · as ``CIGRE4__GFM_A_C_LC__GFL_C_F_L`` with GFL_P_F_L at bus 7 (outer P/Q loops)."""
-    GFL = GFL_P_F_L
