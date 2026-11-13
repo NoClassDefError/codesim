@@ -26,14 +26,20 @@ class OutputJsonFactory:
         self.requestId: Any = None
         self.sequence = 0
         self.streaming = False
+        # Event prefix of streamed chunks: "simulation" (EMT) or "rms".
+        self.streamKind = "simulation"
         # Keep live plots responsive even for simulations with only a few
         # hundred output samples.  Larger chunks made short runs emit their
         # first waveform update only when integration was nearly complete.
         self.chunkSize = 50
         self.latestSimulation: dict[str, Any] = {}
         self.latestSmallSignal: dict[str, Any] = {}
+        # The analysis object behind latestSmallSignal; snapshots re-serialize
+        # only when a new analysis replaced it.
+        self._serializedAnalysis: Any = None
+        # (simulation, busIds, signals) of the last buildSignals call in getDescriptor.
+        self._signalsCache: tuple[Any, list[str], list[dict[str, Any]]] | None = None
         self.latestInteractionAnalysis: dict[str, Any] = {}
-        self.latestTransientVoltage: dict[str, Any] = {}
         self.latestRMS: dict[str, Any] = {}
         self.outputDirectory = Path(outputDirectory) if outputDirectory else Path(__file__).resolve().parents[2] / "codegen"
         self.preserveExisting = True
@@ -62,29 +68,44 @@ class OutputJsonFactory:
             return {"real": value.real, "imaginary": value.imag, "magnitude": abs(value)}
         if isinstance(value, dict):
             return {str(key): OutputJsonFactory.jsonSafe(item) for key, item in value.items()}
+        if isinstance(value, list) and value and type(value[0]) is float:
+            # Fast path for signal traces: a flat list of finite floats is
+            # already JSON-safe (walking millions of items one by one is slow).
+            try:
+                array = np.asarray(value, dtype=float)
+            except (TypeError, ValueError):
+                array = None
+            if array is not None and array.ndim == 1 and np.isfinite(array).all():
+                return value
         if isinstance(value, (list, tuple)):
             return [OutputJsonFactory.jsonSafe(item) for item in value]
         if callable(value):
             return getattr(value, "__name__", repr(value))
         return value
 
-    def beginSimulation(self, requestId: Any) -> None:
-        """[stdout] Start associating streamed chunks with one request."""
+    def beginSimulation(self, requestId: Any, kind: str = "simulation") -> None:
+        """[stdout] Start associating streamed chunks with one request.
+
+        ``kind`` prefixes the chunk events: ``simulation.chunk`` for EMT runs,
+        ``rms.chunk`` for RMS runs.
+        """
         self.requestId = requestId
         self.sequence = 0
         self.streaming = True
+        self.streamKind = kind
 
     def endSimulation(self) -> None:
         """[stdout] Stop simulation chunk streaming."""
         self.streaming = False
         self.requestId = None
+        self.streamKind = "simulation"
 
     def writeSimulationChunk(self, time_s: Any, state: Any, signals: dict[str, Any]) -> None:
         """[stdout] Serialize states and calculated signals as one streamed chunk."""
         if not self.streaming:
             return
         self.writeStdout({
-            "type": "simulation.chunk",
+            "type": f"{self.streamKind}.chunk",
             "requestId": self.requestId,
             "sequence": self.sequence,
             "signals": self.buildSignals({
@@ -154,8 +175,10 @@ class OutputJsonFactory:
     def getDescriptor(self, simulation: dict[str, Any] | None = None) -> dict[str, Any]:
         """[snapshot] Build the complete frontend descriptor in memory."""
         simulation = simulation or {}
-        if self.system.smallSignal.latestAnalysis:
-            self.latestSmallSignal = self.serializeSmallSignal(self.system.smallSignal.latestAnalysis)
+        analysis = self.system.smallSignal.latestAnalysis
+        if analysis and analysis is not self._serializedAnalysis:
+            self.latestSmallSignal = self.serializeSmallSignal(analysis)
+            self._serializedAnalysis = analysis
         A = np.asarray(self.system.network["A"])
         busNames = list(self.system.network["busNames"])
         R = np.asarray(self.system.network["R"]).reshape(-1)
@@ -215,8 +238,7 @@ class OutputJsonFactory:
                 "source": source,
             },
             "components": components, "connections": connections,
-            "signals": (simulation["_snapshotSignals"] if "_snapshotSignals" in simulation
-                        else self.buildSignals(simulation, busIds)),
+            "signals": self.cachedSignals(simulation, busIds),
             "simulationData": ({
                 "time_s": self.jsonSafe(simulation["time_s"]),
                 "referenceNames": simulation.get("referenceNames", self.system.referenceNames),
@@ -224,9 +246,18 @@ class OutputJsonFactory:
             } if "state" in simulation and "referenceTrace" in simulation else {}),
             "smallSignal": self.latestSmallSignal,
             "interactionAnalysis": self.latestInteractionAnalysis,
-            "transientVoltage": self.latestTransientVoltage,
             "rmsSimulation": self.latestRMS,
         }
+
+    def cachedSignals(self, simulation: dict[str, Any], busIds: list[str]) -> list[dict[str, Any]]:
+        """``buildSignals`` for the descriptor, reused while the simulation is unchanged."""
+        cached = self._signalsCache
+        if cached is not None and cached[0] is simulation and cached[1] == busIds:
+            return cached[2]
+        signals = self.buildSignals(simulation, busIds)
+        if simulation:
+            self._signalsCache = (simulation, list(busIds), signals)
+        return signals
 
     def saveSnapshot(self, simulation: dict[str, Any] | None = None):
         """[snapshot] Atomically write the latest frontend descriptor to disk."""
@@ -242,57 +273,11 @@ class OutputJsonFactory:
                 descriptor = self.mergeSnapshot(descriptor, existing)
             except (OSError, json.JSONDecodeError):
                 pass
-        payload = json.dumps(self.jsonSafe(descriptor), ensure_ascii=False, indent=2, allow_nan=False)
+        payload = json.dumps(self.jsonSafe(descriptor), ensure_ascii=False, allow_nan=False)
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=self.outputDirectory, delete=False) as handle:
             handle.write(payload); temporary = Path(handle.name)
         os.replace(temporary, snapshotFile)
         return snapshotFile, descriptor
-
-    def loadSimulationFromSnapshot(self) -> dict[str, Any] | None:
-        """Restore state and reference trajectories from a matching snapshot."""
-        modelName = re.sub(r'[<>:"/\\|?*]', "-", self.system.name)
-        path = self.outputDirectory / f"{modelName}-snapshot.json"
-        if not path.exists():
-            return None
-        data = json.loads(path.read_text(encoding="utf-8"))
-        data = data.get("frontendDescriptor", data)
-        if data.get("system", {}).get("name") != self.system.name:
-            return None
-        saved = {item["id"]: item["value"] for item in data["system"].get("parameters", [])}
-        current = {
-            name: self.jsonSafe(self.system.parameters[name])
-            for name in self.editableParameterNames()
-        }
-        if saved != current:
-            raise ValueError("saved simulation does not match the current model parameters")
-        states = {item["label"]: item for item in data.get("signals", []) if item.get("category") == "state"}
-        if any(name not in states for name in self.system.stateNames):
-            return None
-        time = np.asarray(states[self.system.stateNames[0]]["time"], dtype=float)
-        if not time.size or not np.isfinite(time).all() or np.any(np.diff(time) <= 0):
-            raise ValueError("saved simulation has invalid sample times")
-        if any(not np.array_equal(time, states[name]["time"]) for name in self.system.stateNames):
-            raise ValueError("saved state signals have different sample times")
-        state = np.asarray([states[name]["values"] for name in self.system.stateNames], dtype=float).T
-        if state.shape != (time.size, len(self.system.stateNames)) or not np.isfinite(state).all():
-            raise ValueError("saved simulation has invalid state values")
-        metadata = data.get("simulationData", {})
-        if metadata:
-            if metadata.get("referenceNames") != self.system.referenceNames or not np.array_equal(time, metadata.get("time_s")):
-                raise ValueError("saved reference trace does not match the state signals")
-            references = np.asarray(metadata["referenceTrace"], dtype=float)
-        else:
-            if self.system.parameters.get("clearMode") == "angle":
-                raise ValueError("saved angle-clearing simulation lacks its reference trace")
-            references = np.asarray([self.system.getReference(float(t)) for t in time], dtype=float)
-        if references.shape != (time.size, len(self.system.referenceNames)) or not np.isfinite(references).all():
-            raise ValueError("saved simulation has an invalid reference trace")
-        self.latestSimulation = {
-            "time_s": time, "state": state, "stateNames": self.system.stateNames,
-            "referenceNames": self.system.referenceNames, "referenceTrace": references,
-            "_snapshotSignals": data["signals"],
-        }
-        return self.latestSimulation
 
     def mergeSnapshot(self, descriptor: dict[str, Any], existing: dict[str, Any]):
         """[snapshot] Preserve compatible results and layout from an existing file."""
@@ -321,15 +306,6 @@ class OutputJsonFactory:
             existingInteraction.get("available") and existingInteraction.get("matrices")
         ):
             descriptor["interactionAnalysis"] = existing["interactionAnalysis"]
-        transient = descriptor.get("transientVoltage", {})
-        existingTransient = existing.get("transientVoltage", {})
-        if (
-            compatible
-            and not transient.get("available")
-            and existingTransient.get("available")
-            and not newSimulation
-        ):
-            descriptor["transientVoltage"] = existingTransient
         rms = descriptor.get("rmsSimulation", {})
         existingRMS = existing.get("rmsSimulation", {})
         if compatible and not rms.get("available") and existingRMS.get("available"):
@@ -374,66 +350,6 @@ class OutputJsonFactory:
             })
         return result
 
-    def serializeTransientVoltage(self, decomposition: dict[str, Any]) -> dict[str, Any]:
-        """[snapshot] Serialize transient bus-voltage decomposition traces."""
-        qss = np.asarray(decomposition["qssVoltage"], dtype=complex)
-        correction = np.asarray(decomposition["firstOrderError"], dtype=complex)
-
-        def trace(value: Any) -> dict[str, Any]:
-            matrix = np.asarray(value, dtype=complex)
-            if matrix.ndim == 1:
-                matrix = matrix[:, None]
-            return {
-                "real": matrix.real.tolist(),
-                "imaginary": matrix.imag.tolist(),
-                "magnitude": np.abs(matrix).tolist(),
-            }
-
-        return {
-            "available": True,
-            "time_s": np.asarray(decomposition["time_s"], dtype=float).tolist(),
-            "sourceSampleCount": int(decomposition["sourceSampleCount"]),
-            "sampleIndices": np.asarray(
-                decomposition["sampleIndices"], dtype=int
-            ).tolist(),
-            "busNames": list(map(str, decomposition["busNames"])),
-            "requestedSlowStateNames": list(map(
-                str, decomposition.get(
-                    "requestedSlowStateNames", decomposition["slowStateNames"],
-                ),
-            )),
-            "slowStateNames": list(map(str, decomposition["slowStateNames"])),
-            "fastStateNames": list(map(str, decomposition["fastStateNames"])),
-            "angleStateName": str(decomposition["angleStateName"]),
-            "angleRate_rad_s": np.asarray(
-                decomposition["angleRate_rad_s"], dtype=float
-            ).tolist(),
-            "slowStateRates_per_s": np.asarray(
-                decomposition["slowStateRates_per_s"], dtype=float
-            ).tolist(),
-            "qssConverged": np.asarray(
-                decomposition["qssConverged"], dtype=bool
-            ).tolist(),
-            "qssResidualNorm": np.asarray(
-                decomposition["qssResidualNorm"], dtype=float
-            ).tolist(),
-            "fastJacobianCondition": np.asarray(
-                decomposition["fastJacobianCondition"], dtype=float
-            ).tolist(),
-            "firstOrderAvailable": np.asarray(
-                decomposition["firstOrderAvailable"], dtype=bool
-            ).tolist(),
-            "components": {
-                "actual": trace(decomposition["actualVoltage"]),
-                "qss": trace(qss),
-                "firstOrderError": trace(correction),
-                "firstOrder": trace(correction),
-                "emt": trace(decomposition["emtVoltage"]),
-                "reconstructed": trace(decomposition["reconstructedVoltage"]),
-                "reconstructionError": trace(decomposition["reconstructionError"]),
-            },
-        }
-
     def serializeSmallSignal(self, analysis: dict[str, Any]) -> dict[str, Any]:
         """[snapshot] Serialize small-signal modes and symbolic expressions."""
         poles = np.asarray(analysis["poles"], dtype=complex).reshape(-1)
@@ -460,17 +376,122 @@ class OutputJsonFactory:
                 "dominantState": row.get("DominantState", ""),
                 "dominantParticipation": float(row.get("DominantParticipation", 0)),
             })
-        grid = self.system.rlGrid
         return {
             "available": True, "normalizedTime": True,
             "unstablePoleCount": int(np.sum(poles.real > tolerance)),
             "poleTolerance": tolerance, "modes": modes,
-            "symbolicExpressions": {
-                "aSymLatex": sp.latex(grid.A_sym),
-                "fLatex": sp.latex(grid.f),
-                "gLatex": sp.latex(grid.g),
-            },
+            "symbolicModel": self.serializeSymbolicModel(),
         }
+
+    def serializeSymbolicModel(self) -> dict[str, Any]:
+        """[snapshot] Symbolic EMT and RMS models, organised in blocks for the frontend.
+
+        Equations are sent row by row and Jacobians as their nonzero entries in
+        CSE form (``cseJacobian``) with the intermediates they use, so the
+        frontend renders one block at a time instead of a multi-MB matrix. The
+        result depends only on the model structure and is cached with it.
+        """
+        grid = self.system.rlGrid
+        differential = tuple(grid.getRMSDifferentialIndices())
+        key = ("symbolicDescriptor", differential)
+        if key in grid._modelEntry:
+            return grid._modelEntry[key]
+        latex = sp.latex
+        stateNames = [str(symbol) for symbol in grid.x]
+        partition, blockStarts, blockNames = self.system.smallSignal.devicePartition()
+        stops = list(blockStarts[1:]) + [len(partition) + 1]
+        stateBlocks = [
+            {"name": name, "indices": [index - 1 for index in partition[start - 1:stop - 1]]}
+            for name, start, stop in zip(blockNames, blockStarts, stops)
+        ]
+        blockOf = {index: number for number, block in enumerate(stateBlocks) for index in block["indices"]}
+        branchRows, busRows = 2 * grid.b, 2 * grid.n
+        # Bus names may contain spaces and underscores: render them as text.
+        busNames = [str(name).replace("_", r"\_") for name in self.system.busNames]
+        outputLabels = (
+            [latex(symbol) for symbol in grid.ibsym]
+            + [rf"v_{{\text{{{name}}},{axis}}}" for name in busNames for axis in "dq"]
+            + [rf"i_{{\text{{dev}},\text{{{name}}},{axis}}}" for name in busNames for axis in "dq"]
+        )
+        outputGroups = [
+            {"name": name, "indices": list(range(start, start + count))}
+            for name, start, count in (
+                ("Branch currents", 0, branchRows),
+                ("Bus voltages", branchRows, busRows),
+                ("Device currents", branchRows + busRows, busRows),
+            ) if count
+        ]
+        stateLatex = [latex(symbol) for symbol in grid.x]
+        rms = grid.rms
+        isDifferential = set(int(index) for index in rms["differentialIndices"])
+
+        def rows(matrix, lhs):
+            return [{"lhs": lhs[i], "latex": latex(matrix[i])} for i in range(matrix.rows)]
+
+        def jacobian(identifier, label, replacements, matrix, columnGroups):
+            symbols = [symbol for symbol, _ in replacements]
+            index = {symbol: number for number, symbol in enumerate(symbols)}
+
+            def uses(expression):
+                return sorted(index[symbol] for symbol in expression.free_symbols if symbol in index)
+
+            return {
+                "id": identifier, "label": label,
+                "rowGroups": "states", "columnGroups": columnGroups,
+                "shape": [matrix.rows, matrix.cols],
+                "entries": [
+                    [i, j, latex(matrix[i, j]), uses(matrix[i, j])]
+                    for i in range(matrix.rows) for j in range(matrix.cols) if matrix[i, j] != 0
+                ],
+                "intermediates": [
+                    {"name": latex(symbol), "latex": latex(expression), "uses": uses(expression)}
+                    for symbol, expression in replacements
+                ],
+            }
+
+        dotted = [rf"\dot{{{name}}}" for name in stateLatex]
+        descriptor = {
+            "states": [
+                {"name": name, "latex": stateLatex[i], "block": blockOf.get(i, len(stateBlocks) - 1),
+                 "rms": "differential" if i in isDifferential else "algebraic"}
+                for i, name in enumerate(stateNames)
+            ],
+            "inputs": [{"name": str(symbol), "latex": latex(symbol)} for symbol in grid.u],
+            "stateBlocks": stateBlocks,
+            "outputGroups": outputGroups,
+            "models": [
+                {
+                    "id": "emt", "label": "EMT",
+                    "description": "Stationary alpha-beta frame; time in per unit (tau = w_b t).",
+                    "equations": [
+                        {"id": "f", "label": "State equation f", "rowGroups": "states",
+                         "rows": rows(grid.f, dotted)},
+                        {"id": "g", "label": "Output equation g", "rowGroups": "outputs",
+                         "rows": rows(grid.g, outputLabels)},
+                    ],
+                    "jacobians": [jacobian(
+                        "A", "State matrix A = \u2202f/\u2202x (operating frame)",
+                        *grid.A_cse, "states",
+                    )],
+                },
+                {
+                    "id": "rms", "label": "RMS",
+                    "description": "Phasor model in the DQ frame rotating at 1 pu: differential rows "
+                                   "dx_d/dtau = F_d, algebraic rows 0 = F_a.",
+                    "equations": [
+                        {"id": "F", "label": "RMS equations F", "rowGroups": "states",
+                         "rows": rows(rms["F_sym"], [dotted[i] if i in isDifferential else "0"
+                                                     for i in range(len(stateNames))])},
+                    ],
+                    "jacobians": [
+                        jacobian("A_RMS", "A_RMS = \u2202F/\u2202x", *rms["A_cse"], "states"),
+                        jacobian("B_RMS", "B_RMS = \u2202F/\u2202u", *rms["B_cse"], "inputs"),
+                    ],
+                },
+            ],
+        }
+        grid._modelEntry[key] = descriptor
+        return descriptor
 
     def serializeInteractionAnalysis(self, analysis: dict[str, Any]) -> dict[str, Any]:
         """[snapshot] Serialize subsystem interaction analysis results."""

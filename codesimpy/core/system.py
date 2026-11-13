@@ -472,9 +472,26 @@ class System(ABC):
         settings.update(SolverSettings or {})
         breakpoints = np.unique(np.asarray(Breakpoints_s, dtype=float).reshape(-1))
         boundaries = np.r_[time_s[0], breakpoints[(breakpoints > time_s[0]) & (breakpoints < time_s[-1])], time_s[-1]]
+        streaming = self.outputJsonFactory.streaming
+        if streaming:
+            # Integrate chunk by chunk so finished samples can be streamed.
+            chunkSize = max(1, int(self.outputJsonFactory.chunkSize))
+            boundaries = np.unique(np.r_[
+                boundaries, time_s[np.arange(chunkSize - 1, time_s.size, chunkSize)],
+            ])
         state = np.empty((time_s.size, x0.size))
         residualNorm = np.zeros(time_s.size)
         xd = x0[d].copy()
+        chunkStart = nextOutput = 0
+
+        def emitChunk(start: int, stop: int) -> None:
+            chunkTime, chunkState = time_s[start:stop], state[start:stop]
+            networkSignals = self.calculateNetworkSignals(chunkTime, chunkState, references)
+            self.outputJsonFactory.writeSimulationChunk(
+                chunkTime, chunkState,
+                self.calculateSignals(chunkTime, chunkState, networkSignals),
+            )
+
         for start, stop in zip(boundaries[:-1], boundaries[1:]):
             solution = solve_ivp(derivative, (start, stop), xd, dense_output=True, **settings)
             if not solution.success:
@@ -486,6 +503,13 @@ class System(ABC):
                 sample, reference = fullState(time_s[k], solution.sol(time_s[k]))
                 state[k] = sample
                 residualNorm[k] = np.linalg.norm(rms["F"](sample, reference)[a], np.inf)
+            if streaming and inside.size:
+                nextOutput = max(nextOutput, int(inside[-1]) + 1)
+                while nextOutput - chunkStart >= chunkSize:
+                    emitChunk(chunkStart, chunkStart + chunkSize)
+                    chunkStart += chunkSize
+        if streaming and chunkStart < time_s.size:
+            emitChunk(chunkStart, time_s.size)
         networkSignals = self.calculateNetworkSignals(time_s, state, references)
         signals = self.calculateSignals(time_s, state, networkSignals)
         return {

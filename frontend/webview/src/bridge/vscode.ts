@@ -57,19 +57,6 @@ export function runAnalysis(
   vscode?.postMessage({ type: 'runAnalysis', analysis, systemName });
 }
 
-export function runTransientVoltage(
-  systemName: string,
-  slowStateNames: string[],
-  maxSamples: number,
-): void {
-  vscode?.postMessage({
-    type: 'runTransientVoltage',
-    systemName,
-    slowStateNames,
-    maxSamples,
-  });
-}
-
 export interface RMSRunOptions {
   /** Also compute the first-order RMS+Δ correction. */
   correction: boolean;
@@ -144,6 +131,29 @@ export function onSimulationChunk(
 ): () => void {
   const handler = (event: MessageEvent) => {
     if (event.data?.type === 'simulation.chunk') {
+      listener(event.data as SimulationChunk);
+    }
+  };
+  window.addEventListener('message', handler);
+  return () => window.removeEventListener('message', handler);
+}
+
+export function onRMSStarted(listener: () => void): () => void {
+  const handler = (event: MessageEvent) => {
+    if (event.data?.type === 'rms.started') {
+      listener();
+    }
+  };
+  window.addEventListener('message', handler);
+  return () => window.removeEventListener('message', handler);
+}
+
+/** Streamed RMS samples; signals use the EMT ids and labels. */
+export function onRMSChunk(
+  listener: (chunk: SimulationChunk) => void,
+): () => void {
+  const handler = (event: MessageEvent) => {
+    if (event.data?.type === 'rms.chunk') {
       listener(event.data as SimulationChunk);
     }
   };

@@ -23,9 +23,17 @@ class CLI:
         self.modelKey = ""
         self.operatingPoint = None
         self.running = True
+        # Heavy descriptor parts (by identity) the extension already received.
+        self.sentDescriptorParts: dict[str, Any] = {}
 
     @classmethod
     def run(cls) -> None:
+        # The protocol is UTF-8 JSON lines. Without this, Python uses the
+        # locale encoding (e.g. GBK on Chinese Windows) and fails on symbols
+        # such as "∂" or "Δ" in labels.
+        for stream in (sys.stdin, sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(encoding="utf-8")
         cls().serve()
 
     def serve(self) -> None:
@@ -56,7 +64,7 @@ class CLI:
                 "systemName": self.systemName,
                 "parameters": self.system.outputJsonFactory.editableParameters(),
                 "options": self.options,
-                "descriptor": descriptor,
+                "descriptor": self.responseDescriptor(descriptor),
                 "snapshotFile": str(snapshotFile),
             })
         elif method == "model.reset":
@@ -68,8 +76,6 @@ class CLI:
             self.runSmallSignal(requestId, params)
         elif method == "interaction.run":
             self.runInteraction(requestId, params)
-        elif method == "transientVoltage.run":
-            self.runTransientVoltage(requestId, params)
         elif method == "rms.run":
             self.runRMS(requestId, params)
         elif method == "server.shutdown":
@@ -125,7 +131,30 @@ class CLI:
             self.operatingPoint = None
         return self.system.outputJsonFactory.saveSnapshot() if saveSnapshot else (None, None)
 
+    def responseDescriptor(self, descriptor: Any) -> Any:
+        """Leave out heavy descriptor parts the extension already holds unchanged.
+
+        Signals and RMS results can be hundreds of MB for small output steps.
+        A part identical (same object) to the one in a previous response is
+        dropped and listed in ``omittedFields``; the extension restores it from
+        its cached snapshot.
+        """
+        if not isinstance(descriptor, dict):
+            return descriptor
+        trimmed, omitted = dict(descriptor), []
+        for key in ("signals", "rmsSimulation"):
+            value = descriptor.get(key)
+            if value and value is self.sentDescriptorParts.get(key):
+                trimmed.pop(key)
+                omitted.append(key)
+            else:
+                self.sentDescriptorParts[key] = value
+        if omitted:
+            trimmed["omittedFields"] = omitted
+        return trimmed
+
     def resetModel(self) -> None:
+        self.sentDescriptorParts = {}
         self.system = None
         self.systemName = ""
         self.parameters = {}
@@ -157,10 +186,11 @@ class CLI:
         ]
 
     def runSimulation(self, requestId: Any, params: dict[str, Any]) -> None:
-        self.loadModel(params)
-        self.system.outputJsonFactory.latestTransientVoltage = {}
+        self.loadModel(params, saveSnapshot=False)
         operatingPoint = self.getOperatingPoint()
         time_s = self.outputTime()
+        # The extension discards its signals when the run starts.
+        self.sentDescriptorParts.pop("signals", None)
         self.system.outputJsonFactory.beginSimulation(requestId)
         self.outputJsonFactory.writeEvent(
             "simulation.started", requestId,
@@ -180,51 +210,28 @@ class CLI:
                 systemName=self.systemName,
             )
             self.outputJsonFactory.writeResponse(requestId, {
-                "descriptor": descriptor, "snapshotFile": str(snapshotFile),
+                "descriptor": self.responseDescriptor(descriptor), "snapshotFile": str(snapshotFile),
             })
         finally:
             self.system.outputJsonFactory.endSimulation()
 
     def runSmallSignal(self, requestId: Any, params: dict[str, Any]) -> None:
-        self.loadModel(params)
+        self.loadModel(params, saveSnapshot=False)
         analysis = self.system.smallSignal.analyze(self.getOperatingPoint())
         snapshotFile, descriptor = self.system.outputJsonFactory.saveSnapshot()
         self.outputJsonFactory.writeResponse(requestId, {
-            "descriptor": descriptor,
+            "descriptor": self.responseDescriptor(descriptor),
             "snapshotFile": str(snapshotFile),
             "unstablePoleCount": analysis["unstablePoleCount"],
         })
 
     def runInteraction(self, requestId: Any, params: dict[str, Any]) -> None:
-        self.loadModel(params)
+        self.loadModel(params, saveSnapshot=False)
         self.system.smallSignal.analyze(self.getOperatingPoint())
         self.runInteractionAnalysis(params)
         snapshotFile, descriptor = self.system.outputJsonFactory.saveSnapshot()
         self.outputJsonFactory.writeResponse(requestId, {
-            "descriptor": descriptor, "snapshotFile": str(snapshotFile),
-        })
-
-    def runTransientVoltage(self, requestId: Any, params: dict[str, Any]) -> None:
-        if self.system is None or params.get("systemName", self.systemName) != self.systemName:
-            self.loadModel(params, saveSnapshot=False)
-        simulation = (self.system.outputJsonFactory.latestSimulation
-                      or self.system.outputJsonFactory.loadSimulationFromSnapshot())
-        if not simulation or "state" not in simulation or "time_s" not in simulation:
-            raise ValueError("no compatible simulation was found in memory or the saved JSON snapshot")
-        slowStateNames = params.get("slowStateNames", [])
-        if isinstance(slowStateNames, str):
-            slowStateNames = [slowStateNames]
-        decomposition = self.system.transientVoltage.decompose(
-            simulation, slowStateNames,
-            angleStateName=params.get("angleStateName"),
-            maxSamples=params.get("maxSamples"),
-        )
-        self.system.outputJsonFactory.latestTransientVoltage = (
-            self.system.outputJsonFactory.serializeTransientVoltage(decomposition)
-        )
-        snapshotFile, descriptor = self.system.outputJsonFactory.saveSnapshot()
-        self.outputJsonFactory.writeResponse(requestId, {
-            "descriptor": descriptor, "snapshotFile": str(snapshotFile),
+            "descriptor": self.responseDescriptor(descriptor), "snapshotFile": str(snapshotFile),
         })
 
     def runRMS(self, requestId: Any, params: dict[str, Any]) -> None:
@@ -237,23 +244,34 @@ class CLI:
             if not np.isfinite(maxStep_s) or maxStep_s <= 0:
                 raise ValueError("maxStep_s must be a positive number")
             solverSettings["max_step"] = maxStep_s
-        rms = self.system.simulateRMS(
-            self.outputTime(), InitialState=operatingPoint["state"],
-            SolverSettings=solverSettings,
-            Breakpoints_s=self.options["Breakpoints_s"],
-            ResidualTolerance=self.options["ResidualTolerance"],
+        time_s = self.outputTime()
+        factory = self.system.outputJsonFactory
+        # The extension replaces its RMS result with a live one when the run starts.
+        self.sentDescriptorParts.pop("rmsSimulation", None)
+        factory.beginSimulation(requestId, kind="rms")
+        self.outputJsonFactory.writeEvent(
+            "rms.started", requestId,
+            systemName=self.systemName, sampleCount=time_s.size,
         )
+        try:
+            rms = self.system.simulateRMS(
+                time_s, InitialState=operatingPoint["state"],
+                SolverSettings=solverSettings,
+                Breakpoints_s=self.options["Breakpoints_s"],
+                ResidualTolerance=self.options["ResidualTolerance"],
+            )
+        finally:
+            factory.endSimulation()
         corrected = None
         if params.get("correction"):
             cutoff_Hz = float(params.get("cutoff_Hz") or 1000.0)
             if not cutoff_Hz > 0:
                 raise ValueError("cutoff_Hz must be positive")
             corrected = self.system.correctRMS(rms, cutoff_Hz=cutoff_Hz)
-        factory = self.system.outputJsonFactory
         factory.latestRMS = factory.serializeRMS(rms, corrected)
         snapshotFile, descriptor = factory.saveSnapshot()
         self.outputJsonFactory.writeResponse(requestId, {
-            "descriptor": descriptor, "snapshotFile": str(snapshotFile),
+            "descriptor": self.responseDescriptor(descriptor), "snapshotFile": str(snapshotFile),
         })
 
     def runInteractionAnalysis(self, params: dict[str, Any] | None = None):
