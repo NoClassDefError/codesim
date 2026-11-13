@@ -1,12 +1,7 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import katex from 'katex';
-import 'katex/dist/katex.min.css';
-import type {
-  SmallSignalMode,
-  SymbolicExpressionDescriptor,
-  SystemSnapshot,
-} from '../model/types';
-import { PoleZoomControls, usePolePan, usePoleZoom } from './PoleZoom';
+import { useMemo } from 'react';
+import type { SmallSignalMode, SystemSnapshot } from '../model/types';
+import { PoleZoomStatus, usePlotZoom, ZoomMarquee } from './PoleZoom';
+import { SymbolicModelPanel } from './SymbolicModelPanel';
 
 const width = 820;
 const height = 470;
@@ -39,137 +34,20 @@ function eigenvalue(mode: SmallSignalMode): string {
   return `${formatNumber(mode.realPart)} ${sign} j${formatNumber(Math.abs(mode.imaginaryPart))}`;
 }
 
-// Symbolic matrices of larger systems produce very large KaTeX output, and the
-// panel is re-mounted on every tab switch. Keep the last few renderings.
-const latexCache = new Map<string, string>();
-const latexCacheLimit = 12;
-
-function renderLatex(expression: string): string {
-  const cached = latexCache.get(expression);
-  if (cached !== undefined) {
-    latexCache.delete(expression);
-    latexCache.set(expression, cached);
-    return cached;
-  }
-  const markup = katex.renderToString(expression, {
-    displayMode: true,
-    throwOnError: false,
-    strict: false,
-    maxExpand: 10000,
-  });
-  latexCache.set(expression, markup);
-  if (latexCache.size > latexCacheLimit) {
-    latexCache.delete(latexCache.keys().next().value as string);
-  }
-  return markup;
-}
-
-function LatexExpression({ expression }: { expression: string }) {
-  const markup = useMemo(() => renderLatex(expression), [expression]);
-
-  return (
-    <div
-      className="symbolic-equation-latex"
-      dangerouslySetInnerHTML={{ __html: markup }}
-    />
-  );
-}
-
-/** A <details> block that renders its body only once it has been opened. */
-function LazyDetails({
-  title,
-  initiallyOpen,
-  children,
-}: {
-  title: string;
-  initiallyOpen: boolean;
-  children: () => ReactNode;
-}) {
-  const [opened, setOpened] = useState(initiallyOpen);
-  return (
-    <details
-      className="symbolic-equation"
-      open={initiallyOpen}
-      onToggle={(event) => {
-        if (event.currentTarget.open) {
-          setOpened(true);
-        }
-      }}
-    >
-      <summary>{title}</summary>
-      {opened && children()}
-    </details>
-  );
-}
-
-function SymbolicExpressions({
-  expressions,
-}: {
-  expressions: SymbolicExpressionDescriptor;
-}) {
-  const equations = [
-    {
-      id: 'a-sym',
-      title: 'Symbolic state-space matrix A_sym',
-      expression: String.raw`\mathbf{A}_{\mathrm{sym}} = ${expressions.aSymLatex}`,
-      open: true,
-    },
-    {
-      id: 'f',
-      title: 'State equation f',
-      expression: String.raw`\mathbf{f}(\mathbf{x},\mathbf{u}) = ${expressions.fLatex}`,
-      open: false,
-    },
-    {
-      id: 'g',
-      title: 'Output equation g',
-      expression: String.raw`\mathbf{g}(\mathbf{x},\mathbf{u}) = ${expressions.gLatex}`,
-      open: false,
-    },
-  ];
-
-  return (
-    <section className="symbolic-equations-card">
-      <h2>Symbolic model</h2>
-      <p className="symbolic-equations-description">
-        LaTeX expressions generated directly from RLGrid.A_sym, RLGrid.f and RLGrid.g.
-      </p>
-      <div className="symbolic-equations-list">
-        {equations.map((equation) => (
-          <LazyDetails
-            key={equation.id}
-            title={equation.title}
-            initiallyOpen={equation.open}
-          >
-            {() => (
-              <div className="symbolic-equation-scroll">
-                <LatexExpression expression={equation.expression} />
-              </div>
-            )}
-          </LazyDetails>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function PoleMap({ modes }: { modes: SmallSignalMode[] }) {
   const baseRanges = useMemo(() => ({
     x: paddedExtent(modes.map((mode) => mode.realPart)),
     y: paddedExtent(modes.map((mode) => mode.imaginaryPart)),
   }), [modes]);
-  const zoom = usePoleZoom(baseRanges);
-  const ranges = zoom.ranges;
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
-  const pan = usePolePan({
-    enabled: zoom.canZoomOut,
+  const zoom = usePlotZoom({
+    base: baseRanges,
     svgWidth: width,
     svgHeight: height,
-    plotWidth,
-    plotHeight,
-    onPan: zoom.panBy,
+    plot: { left: margin.left, top: margin.top, width: plotWidth, height: plotHeight },
   });
+  const ranges = zoom.ranges;
   const x = (value: number) =>
     margin.left + ((value - ranges.x[0]) / (ranges.x[1] - ranges.x[0])) * plotWidth;
   const y = (value: number) =>
@@ -180,24 +58,14 @@ function PoleMap({ modes }: { modes: SmallSignalMode[] }) {
     <section className="pole-map-card">
       <div className="pole-card-heading">
         <h2>Pole map</h2>
-        <PoleZoomControls
-          scale={zoom.scale}
-          canZoomIn={zoom.canZoomIn}
-          canZoomOut={zoom.canZoomOut}
-          onZoomIn={zoom.zoomIn}
-          onZoomOut={zoom.zoomOut}
-          onReset={zoom.reset}
-        />
+        <PoleZoomStatus zoom={zoom} />
       </div>
       <svg
-        className={`pole-map pole-pan-surface${zoom.canZoomOut ? ' can-pan' : ''}${pan.dragging ? ' dragging' : ''}`}
+        ref={zoom.svgRef}
+        className={`pole-map pole-zoom-surface${zoom.panning ? ' panning' : ''}`}
         viewBox={`0 0 ${width} ${height}`}
         aria-label="Small-signal pole map"
-        onDoubleClick={zoom.reset}
-        onPointerDown={pan.onPointerDown}
-        onPointerMove={pan.onPointerMove}
-        onPointerUp={pan.onPointerUp}
-        onPointerCancel={pan.onPointerCancel}
+        {...zoom.surfaceProps}
       >
         <defs>
           <clipPath id="small-signal-pole-clip">
@@ -253,6 +121,7 @@ function PoleMap({ modes }: { modes: SmallSignalMode[] }) {
             );
           })}
         </g>
+        <ZoomMarquee zoom={zoom} />
         <text className="pole-axis-label" x={width / 2} y={height - 12} textAnchor="middle">
           Real part, Re(λ)
         </text>
@@ -270,7 +139,7 @@ function PoleMap({ modes }: { modes: SmallSignalMode[] }) {
         <span className="stable">× Stable</span>
         <span className="marginal">× Marginal</span>
         <span className="unstable">× Unstable</span>
-        <span className="pole-zoom-hint">Drag to pan · double-click to reset</span>
+        <span className="pole-zoom-hint">Scroll to zoom · drag a box to zoom in · Shift+drag to pan · double-click to reset</span>
       </div>
     </section>
   );
@@ -331,9 +200,7 @@ export function SmallSignalPanel({ snapshot }: { snapshot: SystemSnapshot }) {
             </table>
           </div>
         </section>
-        {result.symbolicExpressions && (
-          <SymbolicExpressions expressions={result.symbolicExpressions} />
-        )}
+        {result.symbolicModel && <SymbolicModelPanel model={result.symbolicModel} />}
       </div>
     </section>
   );

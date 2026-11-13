@@ -1,52 +1,10 @@
-import type { ComplexTraceDescriptor, SystemSnapshot } from './types';
+import { mockSymbolicModel } from './mockSymbolicModel';
+import type { SystemSnapshot } from './types';
 
 const sourceRoot =
   'C:/Users/Macsw/OneDrive - KTH/ADVOCANO/-AVCI/codesim';
 
 const time = Array.from({ length: 401 }, (_, index) => index * 0.001);
-
-function complexTrace(magnitude: number[], phase: number[]): ComplexTraceDescriptor {
-  return {
-    real: magnitude.map((value, index) => [value * Math.cos(phase[index])]),
-    imaginary: magnitude.map((value, index) => [value * Math.sin(phase[index])]),
-    magnitude: magnitude.map((value) => [Math.abs(value)]),
-  };
-}
-
-function addComplexTraces(...traces: ComplexTraceDescriptor[]): ComplexTraceDescriptor {
-  const real = time.map((_, index) => [
-    traces.reduce((sum, trace) => sum + (trace.real[index][0] ?? 0), 0),
-  ]);
-  const imaginary = time.map((_, index) => [
-    traces.reduce((sum, trace) => sum + (trace.imaginary[index][0] ?? 0), 0),
-  ]);
-  return {
-    real,
-    imaginary,
-    magnitude: real.map((row, index) => [Math.hypot(row[0], imaginary[index][0])]),
-  };
-}
-
-const mockPhase = time.map((t) => 0.08 * Math.sin(2 * Math.PI * 2.2 * t));
-const mockQss = complexTrace(
-  time.map((t) => 1 - 0.16 * Math.exp(-7 * t) * Math.sin(2 * Math.PI * 3.2 * t)),
-  mockPhase,
-);
-const mockFirstOrderError = complexTrace(
-  time.map((t) => 0.018 * Math.exp(-5 * t) * Math.sin(2 * Math.PI * 3.2 * t - 0.5)),
-  time.map(() => 0.35),
-);
-const mockFirstOrder = mockFirstOrderError;
-const mockEmt = complexTrace(
-  time.map((t) => 0.035 * Math.exp(-22 * t) * Math.sin(2 * Math.PI * 48 * t)),
-  time.map((t) => 0.025 * Math.exp(-12 * t) * Math.cos(2 * Math.PI * 48 * t)),
-);
-const mockReconstructed = addComplexTraces(mockQss, mockFirstOrder, mockEmt);
-const mockReconstructionError = complexTrace(
-  time.map((t) => 0.003 * Math.exp(-18 * t) * Math.sin(2 * Math.PI * 31 * t)),
-  mockPhase,
-);
-const mockActual = addComplexTraces(mockReconstructed, mockReconstructionError);
 
 const mockInteractionMatrix = {
   rowLabels: ['1', '2', '3', '4'],
@@ -226,11 +184,7 @@ export const mockSystem: SystemSnapshot = {
     normalizedTime: true,
     unstablePoleCount: 0,
     poleTolerance: 1e-7,
-    symbolicExpressions: {
-      aSymLatex: String.raw`\begin{bmatrix}-R_g/L_g & 1/L_g \\ -1/C & -G_d/C\end{bmatrix}`,
-      fLatex: String.raw`\begin{bmatrix}(v_1-v_2-R_g i_g)/L_g \\ (-i_g-G_d v_2)/C\end{bmatrix}`,
-      gLatex: String.raw`\begin{bmatrix}i_g \\ v_1 \\ v_2\end{bmatrix}`,
-    },
+    symbolicModel: mockSymbolicModel,
     modes: [
       { mode: 1, realPart: 0, imaginaryPart: 0, frequencyHz: 0, dampingRatio: 0, stability: 'Marginal', dominantState: 'theta_grid', dominantParticipation: 1 },
       { mode: 2, realPart: -0.086, imaginaryPart: 0, frequencyHz: 0, dampingRatio: 1, stability: 'Stable', dominantState: 'delta_gfm', dominantParticipation: 0.92 },
@@ -272,33 +226,6 @@ export const mockSystem: SystemSnapshot = {
       aOriginal: mockInteractionMatrix,
       aPartitioned: mockInteractionMatrix,
       aBack: mockInteractionMatrix,
-    },
-  },
-  transientVoltage: {
-    available: true,
-    time_s: time,
-      sourceSampleCount: time.length,
-      sampleIndices: time.map((_, index) => index),
-    busNames: ['Bus 1'],
-    slowStateNames: ['delta_gfm'],
-    fastStateNames: ['id_grid', 'iq_grid', 'xccd_gfm', 'xccq_gfm'],
-    angleStateName: 'delta_gfm',
-    angleRate_rad_s: time.map((t) => 0.12 * 2 * Math.PI * 2.2 * Math.cos(2 * Math.PI * 2.2 * t)),
-    slowStateRates_per_s: time.map((t) => [
-      0.12 * 2 * Math.PI * 2.2 * Math.cos(2 * Math.PI * 2.2 * t),
-    ]),
-    qssConverged: time.map(() => true),
-    qssResidualNorm: time.map((t) => 2e-10 + 3e-9 * Math.abs(Math.sin(2 * Math.PI * 3 * t))),
-    fastJacobianCondition: time.map((t) => 18 + 4 * Math.abs(Math.sin(2 * Math.PI * 1.5 * t))),
-      firstOrderAvailable: time.map(() => true),
-    components: {
-      actual: mockActual,
-      qss: mockQss,
-      firstOrderError: mockFirstOrderError,
-      firstOrder: mockFirstOrder,
-      emt: mockEmt,
-      reconstructed: mockReconstructed,
-      reconstructionError: mockReconstructionError,
     },
   },
 };

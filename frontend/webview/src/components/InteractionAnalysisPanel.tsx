@@ -6,7 +6,7 @@ import type {
   InteractionModeShift,
   SystemSnapshot,
 } from '../model/types';
-import { PoleZoomControls, usePolePan, usePoleZoom } from './PoleZoom';
+import { PoleZoomStatus, usePlotZoom, ZoomMarquee } from './PoleZoom';
 
 type MatrixKey = keyof InteractionAnalysisDescriptor['matrices'];
 
@@ -118,18 +118,15 @@ function PoleShiftPlot({ modes }: { modes: InteractionModeShift[] }) {
       y: paddedLogExtent(allPoints.map((point) => signedLog(point.imaginaryPart))),
     };
   }, [points]);
-  const zoom = usePoleZoom(baseRanges);
-  const ranges = zoom.ranges;
   const plotWidth = polePlotWidth - polePlotMargin.left - polePlotMargin.right;
   const plotHeight = polePlotHeight - polePlotMargin.top - polePlotMargin.bottom;
-  const pan = usePolePan({
-    enabled: zoom.canZoomOut,
+  const zoom = usePlotZoom({
+    base: baseRanges,
     svgWidth: polePlotWidth,
     svgHeight: polePlotHeight,
-    plotWidth,
-    plotHeight,
-    onPan: zoom.panBy,
+    plot: { left: polePlotMargin.left, top: polePlotMargin.top, width: plotWidth, height: plotHeight },
   });
+  const ranges = zoom.ranges;
 
   if (points.length === 0) {
     return (
@@ -150,25 +147,15 @@ function PoleShiftPlot({ modes }: { modes: InteractionModeShift[] }) {
     <section className="interaction-pole-card">
       <div className="pole-card-heading">
         <h2>Pole movement</h2>
-        <PoleZoomControls
-          scale={zoom.scale}
-          canZoomIn={zoom.canZoomIn}
-          canZoomOut={zoom.canZoomOut}
-          onZoomIn={zoom.zoomIn}
-          onZoomOut={zoom.zoomOut}
-          onReset={zoom.reset}
-        />
+        <PoleZoomStatus zoom={zoom} />
       </div>
       <div className="interaction-pole-scroll">
         <svg
-          className={`interaction-pole-plot pole-pan-surface${zoom.canZoomOut ? ' can-pan' : ''}${pan.dragging ? ' dragging' : ''}`}
+          ref={zoom.svgRef}
+          className={`interaction-pole-plot pole-zoom-surface${zoom.panning ? ' panning' : ''}`}
           viewBox={`0 0 ${polePlotWidth} ${polePlotHeight}`}
           aria-label="Interaction-analysis pole movement"
-          onDoubleClick={zoom.reset}
-          onPointerDown={pan.onPointerDown}
-          onPointerMove={pan.onPointerMove}
-          onPointerUp={pan.onPointerUp}
-          onPointerCancel={pan.onPointerCancel}
+          {...zoom.surfaceProps}
         >
           <defs>
             <clipPath id="interaction-pole-clip">
@@ -235,6 +222,7 @@ function PoleShiftPlot({ modes }: { modes: InteractionModeShift[] }) {
               );
             })}
           </g>
+          <ZoomMarquee zoom={zoom} />
           <text className="interaction-axis-label" x={polePlotWidth / 2} y={polePlotHeight - 14} textAnchor="middle">Real(λ)</text>
           <text className="interaction-axis-label" x={20} y={polePlotHeight / 2} textAnchor="middle" transform={`rotate(-90 20 ${polePlotHeight / 2})`}>Imag(λ)</text>
         </svg>
@@ -244,7 +232,7 @@ function PoleShiftPlot({ modes }: { modes: InteractionModeShift[] }) {
         <span className="full">○ Actual Λ</span>
         <span className="reduced">○ Masked Λ′</span>
         <span className="interaction-log-note">Signed-log axes</span>
-        <span className="pole-zoom-hint">Drag to pan · double-click to reset</span>
+        <span className="pole-zoom-hint">Scroll to zoom · drag a box to zoom in · Shift+drag to pan · double-click to reset</span>
       </div>
     </section>
   );

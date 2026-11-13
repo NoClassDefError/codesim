@@ -571,8 +571,16 @@ export function WaveformPanel({ snapshot }: Props) {
     return start < end ? [start, end] : fullTimeRange;
   }, [fullTimeRange, zoomWindow]);
 
+  // Signal ids the plot layout has already seen. Signals that appear later
+  // (an RMS run next to an EMT one, or the reverse) join their default plot.
+  const knownSignalIds = useRef(new Set(snapshot.signals.map((signal) => signal.id)));
+
   useEffect(() => {
+    const rememberSignals = () => {
+      knownSignalIds.current = new Set(snapshot.signals.map((signal) => signal.id));
+    };
     if (snapshot.system.id !== layoutSystemId) {
+      rememberSignals();
       const next = defaultPlots(snapshot.signals);
       setPlots(next);
       setSelectedPlotId(next[0]?.id ?? '');
@@ -586,10 +594,25 @@ export function WaveformPanel({ snapshot }: Props) {
       setLayoutInitialized(false);
       setZoomWindow(null);
     } else if (!layoutInitialized && snapshot.signals.length > 0) {
+      rememberSignals();
       const next = defaultPlots(snapshot.signals);
       setPlots(next);
       setSelectedPlotId(next[0]?.id ?? '');
       setLayoutInitialized(true);
+    } else if (layoutInitialized) {
+      const known = knownSignalIds.current;
+      const added = snapshot.signals.filter((signal) => !known.has(signal.id));
+      if (added.length === 0) {
+        return;
+      }
+      added.forEach((signal) => known.add(signal.id));
+      const additions = new Map(
+        defaultPlots(added).map((plot) => [plot.id, plot.signalIds]),
+      );
+      setPlots((current) => current.map((plot) => {
+        const ids = additions.get(plot.id)?.filter((id) => !plot.signalIds.includes(id));
+        return ids && ids.length > 0 ? { ...plot, signalIds: [...plot.signalIds, ...ids] } : plot;
+      }));
     }
   }, [layoutInitialized, layoutSystemId, snapshot.signals, snapshot.system.id]);
 
