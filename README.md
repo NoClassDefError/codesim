@@ -24,25 +24,27 @@ Tired of dragging messy control blocks and circuit elements in Simulink / PSCAD?
 ## Requirements
 
 - Python 3.10 or newer.
-- Python packages: `numpy`, `scipy`, and `sympy`.
+- Python packages: `numpy`, `scipy`, and `sympy` (installed automatically by pip). `numba` is optional.
 - Visual Studio Code with the Microsoft Python extension for the graphical interface.
 - Node.js and npm only when developing or rebuilding the extension.
 
 ## Quick start
 
-### 1. Prepare Python
+### 1. Install the Python backend
 
-Install python on your computer and the runtime dependencies:
+Install Python 3.10 or newer, then clone this repository and install it with pip:
 
 ```powershell
-python -m pip install numpy scipy sympy
+python -m pip install git+https://github.com/NoClassDefError/codesimpy.git 
 ```
+
+The package can then be used from Python (`import codesimpy`).
 
 ### 2. Install the VS Code extension
 
 1. Open the VS Code **Extensions** view.
 2. Open the `...` menu and choose **Install from VSIX...**.
-3. Select `frontend/codesim-frontend-0.1.3.vsix`.
+3. Select the `codesim-frontend-*.vsix` file from the [frontend repository](https://github.com/NoClassDefError/codesim_frontend).
 4. Reload the VS Code window.
 
 ### 3. Configure CodeSim
@@ -54,7 +56,7 @@ Then you should see the codesim dialog in the VS Code sidebar. If not, right cli
 Open the Command Palette (The textarea on the top of VSCode) and run:
 
 - **Python: Select Interpreter** to choose the Python environment CodeSim will use.
-- **CodeSim: Select Backend Directory** to select either the project root containing `codesimpy` or the `codesimpy` directory itself.
+- **CodeSim: Select Backend Directory** to select the `codesimpy` checkout from step 1 (keep the folder name `codesimpy`), or a folder that contains it.
 
 CodeSim does not keep a separate Python executable setting. Each time the backend starts, it uses the active interpreter from the Microsoft Python extension for the current workspace. To switch environments, stop the CodeSim backend, run **Python: Select Interpreter**, choose the new environment, and start the backend again.
 
@@ -62,7 +64,7 @@ The only CodeSim path setting is:
 
 ```json
 {
-  "codesim-frontend.backendPath": "C:\\path\\to\\codesim"
+  "codesim-frontend.backendPath": "C:\\path\\to\\codesimpy"
 }
 ```
 
@@ -111,43 +113,44 @@ The backend service builds the frontend list from the exported system classes; i
 
 ## Project structure
 
+The repository root is the `codesimpy` package. The VS Code extension lives in a separate [frontend repository](https://github.com/NoClassDefError/codesim_frontend).
+
 ```text
-codesim/
-├─ codesimpy/
-│  ├─ api/
-│  │  ├─ cli.py                  Resident stdio service and analysis endpoints
-│  │  ├─ output_json_factory.py  Stdout and snapshot serialization
-│  ├─ components/                Converter, machine, source, and load models
-│  ├─ core/
-│  │  ├─ device.py               Device base class
-│  │  ├─ system.py               Initialization, integration, and signals
-│  │  ├─ rl_grid.py              Symbolic/numerical RL network model
-│  │  ├─ small_signal_analyzer.py
-│  ├─ systems/                   Nine runnable system definitions
-│  ├─ tests/                     Python unit and service tests
-│  └─ README.md                  Python package documentation
-├─ frontend/
-│  ├─ src/extension.ts           VS Code extension host
-│  ├─ webview/src/               React topology and signal views
-│  ├─ media/                     Extension logo and activity-bar icon
-│  ├─ package.json               Commands, settings, and build scripts
-│  └─ README.md                  Frontend development documentation
-├─ codegen/                      Generated snapshots; ignored by Git
-├─ tests/                        Reserved project-level tests
+codesimpy/
+├─ api/
+│  ├─ cli.py                  Resident stdio service and analysis endpoints
+│  └─ output_json_factory.py  Stdout and snapshot serialization
+├─ components/                Converter, machine, source, and load models
+├─ core/
+│  ├─ device.py               Device base class
+│  ├─ system.py               Initialization, integration, and signals
+│  ├─ rl_grid.py              Symbolic/numerical RL network model
+│  └─ small_signal_analyzer.py
+├─ systems/                   Runnable system definitions
+├─ tests/                     Python unit and service tests (not installed)
+├─ docs/                      Model-building documentation
+├─ registry.py                @system registry and workspace discovery
+├─ pyproject.toml             Package metadata
 ├─ README.md
 └─ LICENSE
+```
+
+Run the tests from the directory that contains the checkout:
+
+```powershell
+python -m unittest discover -s codesimpy/tests -t .
 ```
 
 ## Extending CodeSim
 
 ### Add a system
 
-1. Add a `System` subclass under `codesimpy/systems/`.
+1. Add a `System` subclass under `systems/`.
 2. Define its devices, network, base values, references, parameters, and parameter names.
 3. Implement `calculateSignals(time_s, state, networkSignals)`.
-4. Export it from `codesimpy/systems/__init__.py`.
+4. Export it from `systems/__init__.py`.
 5. Add `defaultParameters(overrides=None)` to the system class and expose it through the backend service.
-6. Add a focused test under `codesimpy/tests/`.
+6. Add a focused test under `tests/`.
 
 ### Add a component
 
@@ -160,7 +163,7 @@ Subclass `codesimpy.core.Device` and implement:
 | `initFromPowerFlow` | Construct the initial device state |
 | `getFInit` | Return residual equations used during initialization |
 
-Export the class from `codesimpy/components/__init__.py` and instantiate it in a system. Add a `deviceAppearance` mapping only when the frontend needs a dedicated category or icon.
+Export the class from `components/__init__.py` and instantiate it in a system. Add a `deviceAppearance` mapping only when the frontend needs a dedicated category or icon.
 
 ## Current limitations
 

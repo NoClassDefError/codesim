@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codesimpy"
+version = "0.1.0"
+description = "Symbolic modelling, simulation and small-signal analysis of converter-dominated power systems."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES"]
+authors = [{ name = "Hanchen Ge" }]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "sympy",
+]
+keywords = ["power systems", "EMT", "small-signal", "grid-forming", "symbolic"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.optional-dependencies]
+# Optional JIT-compiled derivative in core/rl_grid.py
+numba = ["numba"]
+
+[project.scripts]
+codesimpy = "codesimpy.api.cli:CLI.run"
+
+[project.urls]
+Repository = "https://github.com/NoClassDefError/codesimpy"
+
+# The repository root *is* the `codesimpy` package (flat layout without a
+# package folder), so map the package name onto the root directory explicitly.
+[tool.setuptools]
+package-dir = { "codesimpy" = "." }
+packages = [
+    "codesimpy",
+    "codesimpy.api",
+    "codesimpy.components",
+    "codesimpy.core",
+    "codesimpy.systems",
+]
