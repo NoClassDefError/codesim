@@ -21,11 +21,7 @@ slprj/
 .work/
 .svg
 .csv
-frontend/node_modules/
 codegen/
-frontend/.vscode/
-frontend/dist/
-frontend/out/
-codesimpy/tests/
+tests/
 results/
 tmp/

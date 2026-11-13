@@ -1,20 +1,44 @@
 """Resident line-delimited JSON service for the VS Code extension."""
 
+import argparse
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from .. import systems as _systems
+from ..registry import discover
 from .output_json_factory import OutputJsonFactory
 
 
-SYSTEM_CLASSES = {name: getattr(_systems, name) for name in _systems.__all__}   # every public system
+# Built-in systems only; a CLI instance also knows the systems of its user workspace.
+SYSTEM_CLASSES = {name: getattr(_systems, name) for name in _systems.__all__}
+
+# Bytecode cache location before any workspace redirected it (PYTHONPYCACHEPREFIX or None).
+_DEFAULT_PYCACHE_PREFIX = sys.pycache_prefix
+
+
+def outputDirectory(workspace: str | None) -> Path | None:
+    """Where generated files go for a user workspace: ``<workspace>/codegen``."""
+    return Path(workspace).resolve() / "codegen" if workspace else None
+
+
+def usePycacheFor(workspace: str | None) -> None:
+    """Keep bytecode caches of later imports (user files included) in the workspace.
+
+    Without this they would land next to the sources, i.e. inside site-packages
+    for codesimpy itself and across the user's own folders.
+    """
+    directory = outputDirectory(workspace)
+    sys.pycache_prefix = str(directory / "__pycache__") if directory else _DEFAULT_PYCACHE_PREFIX
 
 
 class CLI:
-    def __init__(self) -> None:
+    def __init__(self, workspace: str | None = None) -> None:
+        usePycacheFor(workspace)
+        self.registry = discover(workspace)
         self.outputJsonFactory = OutputJsonFactory()
         self.system = None
         self.systemName = ""
@@ -34,7 +58,10 @@ class CLI:
         for stream in (sys.stdin, sys.stdout, sys.stderr):
             if hasattr(stream, "reconfigure"):
                 stream.reconfigure(encoding="utf-8")
-        cls().serve()
+        parser = argparse.ArgumentParser(prog="python -m codesimpy.api.cli")
+        parser.add_argument("--workspace", help="folder scanned for @system classes")
+        arguments = parser.parse_args()
+        cls(arguments.workspace).serve()
 
     def serve(self) -> None:
         for line in sys.stdin:
@@ -57,7 +84,12 @@ class CLI:
         method = request["method"]
         params = request.get("params", {})
         if method == "getSystems":
-            self.outputJsonFactory.writeResponse(requestId, list(SYSTEM_CLASSES))
+            self.outputJsonFactory.writeResponse(requestId, list(self.registry.systems))
+        elif method == "workspace.set":
+            self.setWorkspace(params.get("path"))
+            self.outputJsonFactory.writeResponse(requestId, self.registry.describe())
+        elif method == "workspace.get":
+            self.outputJsonFactory.writeResponse(requestId, self.registry.describe())
         elif method == "model.load":
             snapshotFile, descriptor = self.loadModel(params)
             self.outputJsonFactory.writeResponse(requestId, {
@@ -100,7 +132,10 @@ class CLI:
             }), sort_keys=True,
         )
         if self.system is None or modelKey != self.modelKey:
-            systemClass = SYSTEM_CLASSES[systemName]
+            entry = self.registry.systems.get(systemName)
+            if entry is None:
+                raise KeyError(f"unknown system: {systemName!r}")
+            systemClass = entry.cls
             runtimeOptionNames = {
                 "StartTime_s", "EndTime_s", "OutputStep_s", "SolverSettings",
                 "ResidualTolerance", "Breakpoints_s",
@@ -126,6 +161,7 @@ class CLI:
             })
             self.system = systemClass(self.parameters)
             self.system.outputJsonFactory.preserveExisting = True
+            self.applyOutputDirectory()
             self.systemName = systemName
             self.modelKey = modelKey
             self.operatingPoint = None
@@ -161,6 +197,32 @@ class CLI:
         self.options = {}
         self.modelKey = ""
         self.operatingPoint = None
+
+    def setWorkspace(self, path: str | None) -> None:
+        """Rescan the user workspace (``None``: built-in systems only)."""
+        if path is not None and not Path(path).is_dir():
+            raise NotADirectoryError(f"workspace is not a directory: {path}")
+        previous = self.registry.systems.get(self.systemName)
+        usePycacheFor(path)
+        self.registry = discover(path)
+        current = self.registry.systems.get(self.systemName)
+        # Workspace files were re-imported, so a loaded user system is stale.
+        if self.system is not None and (
+            current is None or current.source == "workspace"
+            or previous is None or current.cls is not previous.cls
+        ):
+            self.resetModel()
+        self.applyOutputDirectory()
+
+    def applyOutputDirectory(self) -> None:
+        """Write snapshots to ``<workspace>/codegen`` when a user workspace is selected.
+
+        Without one the factory keeps its default, next to the codesimpy package
+        (which is inside site-packages for an installed package).
+        """
+        directory = outputDirectory(self.registry.workspace)
+        if self.system is not None and directory is not None:
+            self.system.outputJsonFactory.outputDirectory = directory
 
     def getOperatingPoint(self):
         if self.operatingPoint is None:
